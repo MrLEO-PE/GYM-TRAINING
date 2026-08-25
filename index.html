@@ -97,7 +97,6 @@
             border: 1px solid var(--card-border);
         }
         
-        /* Added min-width to prevent grid blowout */
         .slot-item { min-width: 0; }
         .slot-item label { font-size: 0.8rem; color: #8b949e; display: block; margin-bottom: 4px; }
 
@@ -109,7 +108,6 @@
         .progress-bar { height: 8px; background: #30363d; border-radius: 4px; overflow: hidden; margin-top: 6px; }
         .progress-fill { height: 100%; background: var(--accent-green); width: 0%; transition: width 0.3s; }
 
-        /* --- EPLEY MODAL STYLING --- */
         .modal-overlay {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -141,51 +139,16 @@
             border-bottom: 1px solid var(--card-border);
             margin-bottom: 15px;
         }
-        .close-btn {
-            background: transparent;
-            border: none;
-            color: #8b949e;
-            font-size: 1.5rem;
-            cursor: pointer;
-        }
+        .close-btn { background: transparent; border: none; color: #8b949e; font-size: 1.5rem; cursor: pointer; }
         .close-btn:hover { color: #fff; }
         
-        .epley-table-wrapper {
-            overflow-y: auto;
-            max-height: 50vh;
-            border: 1px solid var(--card-border);
-            border-radius: 6px;
-            margin-top: 10px;
-        }
-        .epley-table {
-            width: 100%;
-            border-collapse: collapse;
-            text-align: center;
-            font-size: 0.9rem;
-        }
-        .epley-table th {
-            position: sticky;
-            top: 0;
-            background: #21262d;
-            color: var(--accent-blue);
-            padding: 10px;
-            border-bottom: 1px solid var(--card-border);
-            z-index: 2;
-        }
-        .epley-table td {
-            padding: 8px;
-            border-bottom: 1px solid #21262d;
-            border-right: 1px solid #21262d;
-        }
-        .epley-cell {
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-        .epley-cell:hover {
-            background: #1f2a36;
-        }
+        .epley-table-wrapper { overflow-y: auto; max-height: 50vh; border: 1px solid var(--card-border); border-radius: 6px; margin-top: 10px; }
+        .epley-table { width: 100%; border-collapse: collapse; text-align: center; font-size: 0.9rem; }
+        .epley-table th { position: sticky; top: 0; background: #21262d; color: var(--accent-blue); padding: 10px; border-bottom: 1px solid var(--card-border); z-index: 2; }
+        .epley-table td { padding: 8px; border-bottom: 1px solid #21262d; border-right: 1px solid #21262d; }
+        .epley-cell { cursor: pointer; transition: background 0.2s; }
+        .epley-cell:hover { background: #1f2a36; }
 
-        /* --- RESPONSIVE BREAKPOINTS --- */
         @media (max-width: 600px) {
             body { padding: 10px; }
             .header { flex-direction: column; align-items: flex-start; gap: 12px; }
@@ -196,7 +159,6 @@
             input, select, button { min-height: 44px; font-size: 16px !important; }
             .epley-table td, .epley-table th { padding: 8px 4px; font-size: 0.8rem; }
         }
-
         @media (min-width: 601px) and (max-width: 1024px) {
             .grid-3 { grid-template-columns: repeat(3, 1fr); }
             .slot-picker-container { grid-template-columns: repeat(3, 1fr); }
@@ -210,9 +172,9 @@
         <div>
             <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
                 <h1>🏋️ IGCSE PE Gym Tracker</h1>
-                <span id="cloudStatus" class="cloud-badge cloud-off">🟡 Local Storage</span>
+                <span id="cloudStatus" class="cloud-badge cloud-off">🟡 Offline</span>
             </div>
-            <p style="font-size:0.9rem; color:#8b949e; margin-top:4px;">50-Minute Structured Training &amp; PR Tracking</p>
+            <p style="font-size:0.9rem; color:#8b949e; margin-top:4px;">Persistent Cloud Storage Active</p>
         </div>
 
         <div class="profile-box">
@@ -220,8 +182,7 @@
             <div>
                 <select id="userSelect" onchange="switchUser(this.value)"></select>
             </div>
-            <button class="btn btn-sm" onclick="promptNewUser()">+ New Profile</button>
-            <button class="btn btn-sm" style="background:#30363d;" onclick="openConfigModal()">⚙️</button>
+            <button class="btn btn-sm" onclick="promptNewUser()">+ Add Student</button>
         </div>
     </div>
 
@@ -268,11 +229,8 @@
     <div class="card">
         <h2>3. Workout Session Log</h2>
         <p style="font-size: 0.85rem; color: #8b949e; margin-top: 4px;">Pick <b>up to 5 distinct machines</b> for today's session.</p>
-
         <div class="slot-picker-container" id="slotPickerContainer"></div>
-
         <p id="targetSubheading" style="margin-bottom:15px; font-weight: 500;"></p>
-
         <div id="workoutLog"></div>
         <button class="btn btn-green" onclick="saveSession()">Save Today's Workout</button>
     </div>
@@ -298,7 +256,6 @@
                 <button class="close-btn" onclick="closeEpleyModal()">&times;</button>
             </div>
 
-            <!-- Custom Interactive Live Bar -->
             <div style="background: #0d1117; padding: 12px; border-radius: 6px; border: 1px solid var(--card-border); margin-bottom: 10px;">
                 <label style="font-size: 0.85rem; color: var(--accent-blue); font-weight: bold; display: block; margin-bottom: 6px;">
                     Custom Calculation
@@ -334,7 +291,11 @@
     </div>
 
     <script>
-        let CLOUD_CONFIG = JSON.parse(localStorage.getItem('igcse_cloud_config')) || { apiUrl: "", apiKey: "" };
+        // HARDCODED SUPABASE CREDENTIALS
+        const CLOUD_CONFIG = { 
+            apiUrl: "https://jhbvlvnggvbrgjhgcdaw.supabase.co/rest/v1/workouts", 
+            apiKey: "sb_publishable_NlwxRGWVBF8lvK46cPywBA_UBNCjfil" 
+        };
 
         const GOALS = {
             endurance: { name: "Muscle Endurance (Tonicity)", pct: 0.50, reps: 15, rest: "30-60s" },
@@ -348,39 +309,45 @@
         let activeSlots = [0, 1, 2, "", ""];
         let activeEpleyMachineIdx = null;
 
-        function initUserData(userName) {
-            if (!store[userName]) {
-                store[userName] = {
-                    machines: [
-                        { name: "Leg Press", muscle: "Quadriceps", pr: 100 },
-                        { name: "Chest Press", muscle: "Pectorals", pr: 60 },
-                        { name: "Squat", muscle: "Quadriceps/Glutes", pr: 100 },
-                        { name: "Lat Pulldown", muscle: "Back", pr: 55 },
-                        { name: "Shoulder Press", muscle: "Deltoids", pr: 40 }
-                    ],
-                    history: []
-                };
-                saveStore();
-            }
-        }
-
-        function saveStore() {
-            localStorage.setItem('igcse_app_store', JSON.stringify(store));
-            localStorage.setItem('igcse_active_user', currentUser);
-            syncToCloud();
-        }
-
-        async function syncToCloud() {
+        // FETCH DATA FROM CLOUD
+        async function fetchFromCloud(userName) {
             const statusBadge = document.getElementById('cloudStatus');
-            if (!CLOUD_CONFIG.apiUrl || !CLOUD_CONFIG.apiKey) {
-                statusBadge.className = "cloud-badge cloud-off";
-                statusBadge.textContent = "🟡 Local Storage";
-                return;
-            }
-
             try {
                 statusBadge.className = "cloud-badge cloud-syncing";
-                statusBadge.textContent = "🔄 Syncing...";
+                statusBadge.textContent = "🔄 Fetching Database...";
+                
+                const response = await fetch(`${CLOUD_CONFIG.apiUrl}?user_id=eq.${encodeURIComponent(userName)}`, {
+                    method: 'GET',
+                    headers: {
+                        'apikey': CLOUD_CONFIG.apiKey,
+                        'Authorization': `Bearer ${CLOUD_CONFIG.apiKey}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data && data.length > 0) {
+                        store[userName] = data[0].data;
+                        localStorage.setItem('igcse_app_store', JSON.stringify(store));
+                    }
+                    statusBadge.className = "cloud-badge cloud-on";
+                    statusBadge.textContent = "🟢 Cloud Synced";
+                } else {
+                    throw new Error("Fetch failed");
+                }
+            } catch (err) {
+                console.error(err);
+                statusBadge.className = "cloud-badge cloud-off";
+                statusBadge.textContent = "🟡 Local Only (Fetch Failed)";
+            }
+        }
+
+        // SAVE DATA TO CLOUD
+        async function syncToCloud() {
+            const statusBadge = document.getElementById('cloudStatus');
+            try {
+                statusBadge.className = "cloud-badge cloud-syncing";
+                statusBadge.textContent = "🔄 Saving...";
 
                 const response = await fetch(CLOUD_CONFIG.apiUrl, {
                     method: 'POST',
@@ -399,29 +366,45 @@
 
                 if (response.ok) {
                     statusBadge.className = "cloud-badge cloud-on";
-                    statusBadge.textContent = "🟢 Cloud Synced";
-                } else { throw new Error("Sync failed"); }
+                    statusBadge.textContent = "🟢 Cloud Saved";
+                } else { 
+                    throw new Error("Sync failed"); 
+                }
             } catch (err) {
+                console.error(err);
                 statusBadge.className = "cloud-badge cloud-off";
-                statusBadge.textContent = "🟡 Offline / Local Only";
+                statusBadge.textContent = "🟡 Saved Locally Only";
             }
         }
 
-        function openConfigModal() {
-            const url = prompt("Enter Online Database API URL:", CLOUD_CONFIG.apiUrl);
-            if (url !== null) {
-                const key = prompt("Enter Online Database API Key:", CLOUD_CONFIG.apiKey);
-                if (key !== null) {
-                    CLOUD_CONFIG = { apiUrl: url.trim(), apiKey: key.trim() };
-                    localStorage.setItem('igcse_cloud_config', JSON.stringify(CLOUD_CONFIG));
-                    syncToCloud();
-                }
+        function initUserData(userName) {
+            if (!store[userName]) {
+                store[userName] = {
+                    machines: [
+                        { name: "Leg Press", muscle: "Quadriceps", pr: 100 },
+                        { name: "Chest Press", muscle: "Pectorals", pr: 60 },
+                        { name: "Squat", muscle: "Quadriceps/Glutes", pr: 100 },
+                        { name: "Lat Pulldown", muscle: "Back", pr: 55 },
+                        { name: "Shoulder Press", muscle: "Deltoids", pr: 40 }
+                    ],
+                    history: []
+                };
             }
+        }
+
+        function saveStore() {
+            localStorage.setItem('igcse_app_store', JSON.stringify(store));
+            localStorage.setItem('igcse_active_user', currentUser);
+            syncToCloud();
         }
 
         function renderUserSelector() {
             const select = document.getElementById('userSelect');
             select.innerHTML = '';
+            
+            // Add user list to dropdown
+            if (Object.keys(store).length === 0) initUserData(currentUser);
+            
             Object.keys(store).forEach(u => {
                 const opt = document.createElement('option');
                 opt.value = u;
@@ -432,28 +415,39 @@
             document.getElementById('currentUserLabel').textContent = currentUser;
         }
 
-        function switchUser(newUser) {
+        async function switchUser(newUser) {
             currentUser = newUser;
             activeSlots = [0, 1, 2, "", ""];
-            saveStore();
+            initUserData(currentUser);
+            
+            // Pull their specific data from the cloud before rendering
+            await fetchFromCloud(currentUser);
+            
+            localStorage.setItem('igcse_active_user', currentUser);
             renderUserSelector();
             renderMachines();
             renderHistory();
         }
 
-        function promptNewUser() {
-            const name = prompt("Enter Student Name or ID:");
+        async function promptNewUser() {
+            const name = prompt("Enter Student Name or ID Number:");
             if (name && name.trim()) {
                 const cleanName = name.trim();
+                
+                // Add to dropdown immediately
                 initUserData(cleanName);
+                
+                // Try to pull their data if they already exist in the database
+                await fetchFromCloud(cleanName);
+                
                 switchUser(cleanName);
+                
+                // Save them to database if they are brand new
+                saveStore();
             }
         }
 
-        // Used for workout session targets (rounding to common gym plate sizes)
         function roundToWorkingWeight(val) { return Math.round(val); }
-        
-        // Exact Epley Formula
         function calcEpley(weight, reps) { return weight * (1 + reps / 30); }
 
         function renderMachines() {
@@ -479,40 +473,30 @@
                         </div>
                     </div>`;
             });
-
             renderSessionBuilder();
         }
 
-        /* --- EPLEY MODAL & TABLE LOGIC --- */
         function openEpleyModal(machineIdx) {
             activeEpleyMachineIdx = machineIdx;
             const machine = store[currentUser].machines[machineIdx];
             document.getElementById('epleyMachineTitle').textContent = `🧮 Epley Table: ${machine.name}`;
-            
             document.getElementById('customWeight').value = machine.pr > 0 ? Math.round(machine.pr / 1.167) : 50;
             updateCustomEpley();
             buildEpleyTable();
-
             document.getElementById('epleyModal').classList.add('active');
         }
 
-        function closeEpleyModal() {
-            document.getElementById('epleyModal').classList.remove('active');
-            activeEpleyMachineIdx = null;
-        }
+        function closeEpleyModal() { document.getElementById('epleyModal').classList.remove('active'); activeEpleyMachineIdx = null; }
 
         function updateCustomEpley() {
             const weight = parseFloat(document.getElementById('customWeight').value) || 0;
             const reps = parseInt(document.getElementById('customReps').value) || 3;
             const resBox = document.getElementById('customCalcResult');
-
             if (weight > 0) {
                 const exactPr = calcEpley(weight, reps);
                 const roundedPr = Math.round(exactPr);
                 resBox.innerHTML = `Exact Formula: <span style="color:#8b949e;">${exactPr.toFixed(1)} kg</span> | Applied PR: <span style="color:#fff; font-size:1.1rem;">${roundedPr} kg</span>`;
-            } else {
-                resBox.textContent = "Enter a weight to view calculation.";
-            }
+            } else { resBox.textContent = "Enter a weight to view calculation."; }
         }
 
         function applyCustomEpley() {
@@ -527,13 +511,10 @@
         function buildEpleyTable() {
             const tbody = document.getElementById('epleyTableBody');
             tbody.innerHTML = '';
-
             for (let w = 5; w <= 150; w += 5) {
                 const exact3 = calcEpley(w, 3).toFixed(1);
                 const exact4 = calcEpley(w, 4).toFixed(1);
                 const exact5 = calcEpley(w, 5).toFixed(1);
-
-                // Rounding for practical application
                 const pr3 = Math.round(calcEpley(w, 3));
                 const pr4 = Math.round(calcEpley(w, 4));
                 const pr5 = Math.round(calcEpley(w, 5));
@@ -558,9 +539,7 @@
         }
 
         function selectEpleyPR(weight, reps, appliedPR) {
-            if (activeEpleyMachineIdx !== null) {
-                setMachinePR(activeEpleyMachineIdx, appliedPR, weight, reps);
-            }
+            if (activeEpleyMachineIdx !== null) setMachinePR(activeEpleyMachineIdx, appliedPR, weight, reps);
         }
 
         function setMachinePR(machineIdx, appliedPR, weight, reps) {
@@ -618,37 +597,25 @@
             const goal = GOALS[currentGoal];
 
             targetSubheading.innerHTML = `Target: <b>${goal.reps} Reps × 4 Sets</b> | Working Weight: <b>${goal.pct * 100}% of 1RM</b> | Rest: <b>${goal.rest}</b>`;
-
             slotContainer.innerHTML = '';
+            
             for (let i = 0; i < 5; i++) {
                 let optionsHTML = `<option value="">-- None --</option>`;
                 userMachines.forEach((m, mIdx) => {
                     const isPickedElsewhere = activeSlots.some((val, idx) => idx !== i && val === mIdx);
                     const isSelected = activeSlots[i] === mIdx;
-                    
-                    optionsHTML += `<option value="${mIdx}" ${isSelected ? 'selected' : ''} ${isPickedElsewhere ? 'disabled' : ''}>
-                        ${m.name} ${isPickedElsewhere ? '(Selected)' : ''}
-                    </option>`;
+                    optionsHTML += `<option value="${mIdx}" ${isSelected ? 'selected' : ''} ${isPickedElsewhere ? 'disabled' : ''}>${m.name} ${isPickedElsewhere ? '(Selected)' : ''}</option>`;
                 });
-
-                slotContainer.innerHTML += `
-                    <div class="slot-item">
-                        <label>Slot ${i + 1} Machine</label>
-                        <select onchange="updateSlotSelection(${i}, this.value)">
-                            ${optionsHTML}
-                        </select>
-                    </div>`;
+                slotContainer.innerHTML += `<div class="slot-item"><label>Slot ${i + 1} Machine</label><select onchange="updateSlotSelection(${i}, this.value)">${optionsHTML}</select></div>`;
             }
 
             workoutContainer.innerHTML = '';
             let activeCount = 0;
-
             activeSlots.forEach((mIdx, slotIdx) => {
                 if (mIdx !== "" && userMachines[mIdx]) {
                     activeCount++;
                     const m = userMachines[mIdx];
                     const workWeight = roundToWorkingWeight(m.pr * goal.pct);
-
                     workoutContainer.innerHTML += `
                         <div class="machine-row">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -699,17 +666,11 @@
                     const validS4 = Math.min(s4, targetRepsPerSet);
 
                     totalAchievedReps += (validS1 + validS2 + validS3 + validS4);
-
-                    machineDetails.push({
-                        name: m.name,
-                        weight: roundToWorkingWeight(m.pr * goal.pct),
-                        sets: [s1, s2, s3, s4]
-                    });
+                    machineDetails.push({ name: m.name, weight: roundToWorkingWeight(m.pr * goal.pct), sets: [s1, s2, s3, s4] });
                 }
             });
 
             const successRate = Math.round((totalAchievedReps / totalTargetReps) * 100);
-            
             const sessionData = {
                 date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
                 goalName: goal.name,
@@ -720,7 +681,6 @@
 
             store[currentUser].history.unshift(sessionData);
             saveStore();
-
             alert(`Workout saved for ${currentUser}! Session Score: ${successRate}%`);
             renderHistory();
         }
@@ -776,12 +736,17 @@
             }
         }
 
-        // Initialize App
-        initUserData(currentUser);
-        renderUserSelector();
-        renderMachines();
-        renderHistory();
-        syncToCloud();
+        // Initialize App Startup Process
+        async function bootApp() {
+            initUserData(currentUser);
+            await fetchFromCloud(currentUser); // Try to fetch on initial load
+            renderUserSelector();
+            renderMachines();
+            renderHistory();
+        }
+        
+        bootApp();
+
     </script>
 </body>
 </html>
