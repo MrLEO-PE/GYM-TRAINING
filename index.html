@@ -372,6 +372,7 @@
 
 
         // FETCH LIST + FULL DATA OF ALL STUDENTS FROM CLOUD (used for class overview)
+        // Cloud is treated as the source of truth: students removed elsewhere are purged locally too.
         async function fetchAllUsersFromCloud() {
             try {
                 const response = await fetch(`${CLOUD_CONFIG.apiUrl}?select=user_id,data,updated_at`, {
@@ -383,14 +384,31 @@
                 });
                 if (response.ok) {
                     const rows = await response.json();
+                    const cloudUserIds = new Set(rows.map(r => r.user_id));
+
+                    // Remove any locally-cached student that no longer exists in the cloud
+                    Object.keys(store).forEach(name => {
+                        if (!cloudUserIds.has(name)) delete store[name];
+                    });
+
                     rows.forEach(r => {
                         if (r.data) store[r.user_id] = r.data;
                         else if (!store[r.user_id]) initUserData(r.user_id);
                     });
+
+                    // If the active user got purged, fall back to whoever remains
+                    if (!store[currentUser]) {
+                        const remaining = Object.keys(store);
+                        currentUser = remaining.length > 0 ? remaining[0] : 'Student 1';
+                        initUserData(currentUser);
+                        localStorage.setItem('igcse_active_user', currentUser);
+                    }
+
                     localStorage.setItem('igcse_app_store', JSON.stringify(store));
                 }
             } catch (err) {
                 console.error("Could not fetch user list:", err);
+                // Network/cloud failure: leave local store untouched so nothing gets wiped offline
             }
         }
 
