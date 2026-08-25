@@ -529,20 +529,19 @@
 
         function initUserData(userName) {
             if (!store[userName]) {
-                const today = new Date().toISOString().slice(0, 10);
-                const seedMachine = (name, muscle, pr) => ({
-                    name, muscle, pr,
-                    prHistory: [{ date: today, pr, verified: true }],
-                    verifiedPr: pr,
-                    verifiedDate: today
+                const seedMachine = (name, muscle) => ({
+                    name, muscle, pr: 0,
+                    prHistory: [],       // empty — no verified checkpoint until the student enters a real PR
+                    verifiedPr: null,
+                    verifiedDate: null
                 });
                 store[userName] = {
                     machines: [
-                        seedMachine("Leg Press", "Quadriceps", 100),
-                        seedMachine("Chest Press", "Pectorals", 60),
-                        seedMachine("Squat", "Quadriceps/Glutes", 100),
-                        seedMachine("Lat Pulldown", "Back", 55),
-                        seedMachine("Shoulder Press", "Deltoids", 40)
+                        seedMachine("Leg Press", "Quadriceps"),
+                        seedMachine("Chest Press", "Pectorals"),
+                        seedMachine("Squat", "Quadriceps/Glutes"),
+                        seedMachine("Lat Pulldown", "Back"),
+                        seedMachine("Shoulder Press", "Deltoids")
                     ],
                     history: []
                 };
@@ -694,14 +693,21 @@
 
             userMachines.forEach((m, idx) => {
                 const isVerified = m.pr === m.verifiedPr;
-                const verifiedLine = m.verifiedPr != null
-                    ? `<p style="font-size:0.78rem; margin-top:6px; color:${isVerified ? 'var(--accent-green)' : 'var(--accent-orange)'};">
+                const neverVerified = m.verifiedPr == null;
+                let verifiedLine;
+                if (neverVerified) {
+                    verifiedLine = `<p style="font-size:0.8rem; margin-top:6px; color:var(--accent-blue); font-weight:bold;">
+                         ⚡ Enter your starting PR above, then tap Verify to begin tracking.
+                       </p>`;
+                } else {
+                    verifiedLine = `<p style="font-size:0.78rem; margin-top:6px; color:${isVerified ? 'var(--accent-green)' : 'var(--accent-orange)'};">
                          ${isVerified ? '✅' : '⚠️'} Verified PR: <b>${m.verifiedPr} kg</b> — last checked ${m.verifiedDate}
                          ${!isVerified ? ' (current value below is unverified)' : ''}
-                       </p>`
-                    : '';
+                       </p>`;
+                }
+                const showVerifyBtn = !isVerified && m.pr > 0;
                 container.innerHTML += `
-                    <div class="machine-row" style="margin-bottom:8px; padding:10px;">
+                    <div class="machine-row" style="margin-bottom:8px; padding:10px; ${neverVerified ? 'border-color:var(--accent-blue);' : ''}">
                         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
                             <div>
                                 <strong>${m.name}</strong> <span style="font-size:0.85rem; color:#8b949e;">(${m.muscle})</span>
@@ -714,7 +720,7 @@
                         <div class="input-group">
                             <label style="align-self:center;">Current 1RM (kg):</label>
                             <input type="number" value="${m.pr}" onchange="updatePR(${idx}, this.value)">
-                            ${!isVerified ? `<button class="btn btn-green btn-sm" style="white-space:nowrap;" onclick="verifyCurrentPr(${idx})">✅ Verify</button>` : ''}
+                            ${showVerifyBtn ? `<button class="btn btn-green btn-sm" style="white-space:nowrap;" onclick="verifyCurrentPr(${idx})">✅ Verify</button>` : ''}
                         </div>
                         ${verifiedLine}
                     </div>`;
@@ -813,12 +819,11 @@
             const muscle = document.getElementById('newMuscleGroup').value;
             const pr = parseFloat(document.getElementById('newMachine1RM').value);
             if (name && pr) {
-                const today = new Date().toISOString().slice(0, 10);
                 store[currentUser].machines.push({
                     name, muscle, pr,
-                    prHistory: [{ date: today, pr, verified: true }],
-                    verifiedPr: pr,
-                    verifiedDate: today
+                    prHistory: [],        // not verified yet — tap Verify to lock this in as the real baseline
+                    verifiedPr: null,
+                    verifiedDate: null
                 });
                 saveStore();
                 document.getElementById('newMachineName').value = '';
@@ -841,6 +846,10 @@
 
         function verifyCurrentPr(idx) {
             const machine = store[currentUser].machines[idx];
+            if (!machine.pr || machine.pr <= 0) {
+                alert(`Enter a real weight for "${machine.name}" first — 0 kg can't be verified as a PR.`);
+                return;
+            }
             if (!confirm(`Confirm "${machine.name}" 1RM is verified at ${machine.pr} kg? This locks in today as the last-checked date.`)) return;
             recordVerifiedPr(machine, machine.pr);
             saveStore();
