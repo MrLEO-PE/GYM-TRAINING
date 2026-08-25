@@ -805,6 +805,18 @@
 
         function setMachinePR(machineIdx, appliedPR, weight, reps) {
             const machine = store[currentUser].machines[machineIdx];
+            const previousPr = machine.verifiedPr;
+            const isBigJump = previousPr && previousPr > 0 && appliedPR >= previousPr * 1.3;
+
+            if (isBigJump) {
+                const proceed = confirm(
+                    `⚠️ Big jump on "${machine.name}": ${previousPr} kg → ${appliedPR} kg (last checked ${machine.verifiedDate}).\n\n` +
+                    `Double-check the weight and reps you entered are accurate — this number sets your working weight for every future session.\n\n` +
+                    `Tap OK to confirm and apply, or Cancel to re-check your entry.`
+                );
+                if (!proceed) return;
+            }
+
             recordVerifiedPr(machine, appliedPR); // testing on the Epley table is a real, deliberate test
             machine.pr = appliedPR;
             saveStore();
@@ -850,7 +862,21 @@
                 alert(`Enter a real weight for "${machine.name}" first — 0 kg can't be verified as a PR.`);
                 return;
             }
-            if (!confirm(`Confirm "${machine.name}" 1RM is verified at ${machine.pr} kg? This locks in today as the last-checked date.`)) return;
+
+            const previousPr = machine.verifiedPr;
+            const isBigJump = previousPr && previousPr > 0 && machine.pr >= previousPr * 1.3;
+
+            if (isBigJump) {
+                const stillVerify = confirm(
+                    `⚠️ Big jump on "${machine.name}": ${previousPr} kg → ${machine.pr} kg (last checked ${machine.verifiedDate}).\n\n` +
+                    `Double-check that's really accurate before locking it in — this number sets your working weight for every session from here on, so a typo here throws off weeks of training.\n\n` +
+                    `Tap OK to confirm this PR is correct, or Cancel to re-check and re-enter it.`
+                );
+                if (!stillVerify) return;
+            } else {
+                if (!confirm(`Confirm "${machine.name}" 1RM is verified at ${machine.pr} kg? This locks in today as the last-checked date.`)) return;
+            }
+
             recordVerifiedPr(machine, machine.pr);
             saveStore();
             renderMachines();
@@ -1003,6 +1029,15 @@
 
 
             const successRate = Math.round((totalAchievedReps / totalTargetReps) * 100);
+
+            if (successRate >= 95 && !allZero) {
+                const stillSave = confirm(
+                    `🎯 Session Score: ${successRate}% — that's an excellent result!\n\n` +
+                    `Before saving: double-check every rep number you entered is accurate. This score sets the pace for your training over the coming weeks, so it's worth getting right.\n\n` +
+                    `Tap OK to confirm and save, or Cancel to go back and review your numbers.`
+                );
+                if (!stillSave) return;
+            }
             const rpe = document.getElementById('rpeSelect').value;
             const sessionData = {
                 date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
