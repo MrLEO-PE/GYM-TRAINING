@@ -256,6 +256,7 @@
                 <option value="5">5 — Maximal</option>
             </select>
         </div>
+        <div id="personalBestBanner"></div>
         <button class="btn btn-green" onclick="saveSession()">Save Today's Workout</button>
     </div>
 
@@ -942,6 +943,7 @@
                                 <span style="color:var(--accent-blue); font-weight:bold;">Target Weight: ${workWeight} kg</span>
                             </div>
                             <p style="font-size:0.75rem; color:#8b949e; margin-top:4px;">Enter reps completed per set (target: ${goal.reps}). Going over the target on most sets means the weight is too light — retest your PR.</p>
+                            <button class="btn btn-green btn-sm" style="margin-top:8px; width:auto;" onclick="toggleHitTarget(${slotIdx}, ${goal.reps})">✓ Hit all ${goal.reps}</button>
                             <div class="set-inputs">
                                 <input type="number" placeholder="Set 1" id="slot_${slotIdx}_s1" min="0" oninput="checkRepOvershoot(this, ${goal.reps})">
                                 <input type="number" placeholder="Set 2" id="slot_${slotIdx}_s2" min="0" oninput="checkRepOvershoot(this, ${goal.reps})">
@@ -956,6 +958,42 @@
             if (activeCount === 0) {
                 workoutContainer.innerHTML = `<p style="color:#8b949e; text-align:center; padding:20px; border:1px dashed var(--card-border); border-radius:6px;">Select at least 1 machine in the slots above to display your session log.</p>`;
             }
+            renderPersonalBestBanner();
+        }
+
+
+        function getPersonalBest(goalKey) {
+            const hist = (store[currentUser].history || []).filter(h => h.goalKey === goalKey);
+            if (hist.length === 0) return null;
+            return hist.reduce((a, b) => (b.successRate > a.successRate ? b : a), hist[0]).successRate;
+        }
+
+
+        function renderPersonalBestBanner() {
+            const container = document.getElementById('personalBestBanner');
+            const goal = GOALS[currentGoal];
+            const best = getPersonalBest(currentGoal);
+
+            if (best === null) {
+                container.innerHTML = `<div style="background:rgba(88,166,255,0.12); border:1px solid var(--accent-blue); color:var(--accent-blue); padding:10px 12px; border-radius:6px; margin-top:15px; font-size:0.9rem; font-weight:bold; text-align:center;">
+                    🎯 First time on ${goal.name} — set your benchmark today!
+                </div>`;
+            } else {
+                container.innerHTML = `<div style="background:rgba(63,185,80,0.12); border:1px solid var(--accent-green); color:var(--accent-green); padding:10px 12px; border-radius:6px; margin-top:15px; font-size:0.9rem; font-weight:bold; text-align:center;">
+                    🎯 Your best on ${goal.name}: ${best}% — beat it today!
+                </div>`;
+            }
+        }
+
+
+        function toggleHitTarget(slotIdx, targetReps) {
+            const inputs = ['s1', 's2', 's3', 's4'].map(s => document.getElementById(`slot_${slotIdx}_${s}`));
+            const alreadyAllTarget = inputs.every(el => parseInt(el.value) === targetReps);
+
+            inputs.forEach(el => {
+                el.value = alreadyAllTarget ? '' : targetReps;
+                checkRepOvershoot(el, targetReps);
+            });
         }
 
 
@@ -1039,6 +1077,7 @@
                 if (!stillSave) return;
             }
             const rpe = document.getElementById('rpeSelect').value;
+            const previousBest = getPersonalBest(currentGoal); // capture BEFORE this session is added
             const sessionData = {
                 date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
                 isoDate: new Date().toISOString().slice(0, 10),
@@ -1057,11 +1096,19 @@
             renderHistory();
             renderRestNudge();
             renderLeaderboard();
+            renderPersonalBestBanner();
+
+            const isNewBest = previousBest === null || successRate > previousBest;
+            const bestLine = isNewBest
+                ? (previousBest === null
+                    ? `\n\n🏅 Benchmark set on ${goal.name}: ${successRate}%!`
+                    : `\n\n🏅 NEW PERSONAL BEST on ${goal.name}: ${successRate}% (previous: ${previousBest}%)`)
+                : '';
 
             if (overshootMachines.length > 0) {
                 const names = overshootMachines.map(m => m.name).join(', ');
                 const wantsRetest = confirm(
-                    `Workout saved. Session Score: ${successRate}%\n\n` +
+                    `Workout saved. Session Score: ${successRate}%${bestLine}\n\n` +
                     `⚠️ On ${overshootMachines.length > 1 ? 'these machines' : 'this machine'} you did MORE reps than the ${targetRepsPerSet}-rep target on most sets: ${names}.\n\n` +
                     `That usually means your current PR is set too low, so those sets weren't scored as achieved.\n\n` +
                     `Retest your PR now on "${overshootMachines[0].name}"?`
@@ -1070,7 +1117,7 @@
                     openEpleyModal(overshootMachines[0].idx);
                 }
             } else {
-                alert(`Workout saved for ${currentUser}! Session Score: ${successRate}%`);
+                alert(`Workout saved for ${currentUser}! Session Score: ${successRate}%${bestLine}`);
             }
         }
 
