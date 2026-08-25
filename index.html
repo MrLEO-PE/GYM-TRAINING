@@ -189,6 +189,7 @@
             <button class="btn btn-sm" onclick="promptNewUser()">+ Add Student</button>
             <button class="btn btn-sm" style="background:transparent;border:1px solid var(--card-border);color:var(--text-main);" onclick="refreshUserList()" title="Pull in students created on other devices">🔄 Refresh List</button>
             <button class="btn-danger btn-sm" onclick="deleteUser(currentUser)" title="Permanently delete the current student">🗑️ Delete Student</button>
+            <button class="btn btn-sm" style="background:var(--accent-orange); color:#0d1117;" onclick="openClassOverview()">👥 Class Overview</button>
         </div>
     </div>
 
@@ -238,21 +239,64 @@
     <div class="card">
         <h2>3. Workout Session Log</h2>
         <p style="font-size: 0.85rem; color: #8b949e; margin-top: 4px;">Pick <b>up to 8 distinct machines</b> for today's session.</p>
+        <div id="restNudge"></div>
         <div class="slot-picker-container" id="slotPickerContainer"></div>
         <p id="targetSubheading" style="margin-bottom:15px; font-weight: 500;"></p>
         <div id="workoutLog"></div>
+        <div class="slot-item" style="max-width:280px; margin-top:15px;">
+            <label>How hard did that feel? (RPE 1–5, optional)</label>
+            <select id="rpeSelect">
+                <option value="">-- Skip --</option>
+                <option value="1">1 — Very Easy</option>
+                <option value="2">2 — Easy</option>
+                <option value="3">3 — Moderate</option>
+                <option value="4">4 — Hard</option>
+                <option value="5">5 — Maximal</option>
+            </select>
+        </div>
         <button class="btn btn-green" onclick="saveSession()">Save Today's Workout</button>
     </div>
 
 
-    <!-- 4. WORKOUT HISTORY & MOTIVATION LOG -->
+    <!-- 4. PROGRESS OVER TIME -->
+    <div class="card">
+        <h2>4. Progress Over Time</h2>
+        <p style="font-size: 0.85rem; color: #8b949e; margin-top:4px;">Track your journey — great source data for your IGCSE PE coursework analysis.</p>
+
+        <div style="margin-top:12px;">
+            <label style="font-size:0.85rem; color:#8b949e; display:block; margin-bottom:6px;">PR trend for machine:</label>
+            <select id="prTrendMachine" onchange="renderPrTrendChart()" style="max-width:300px;"></select>
+        </div>
+        <div id="prTrendChart" style="margin-top:10px;"></div>
+
+        <div style="margin-top:20px;">
+            <label style="font-size:0.85rem; color:#8b949e; display:block; margin-bottom:6px;">Session score over time (last 12 sessions):</label>
+            <div id="scoreTrendChart"></div>
+        </div>
+    </div>
+
+
+    <!-- 5. WORKOUT HISTORY & MOTIVATION LOG -->
     <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center;">
-            <h2>4. Session Log &amp; Motivation History</h2>
+            <h2>5. Session Log &amp; Motivation History</h2>
             <button class="btn-danger" onclick="clearHistory()">Clear All History</button>
         </div>
         <p style="font-size: 0.85rem; color: #8b949e; margin-bottom: 10px; margin-top:4px;">Review your overall session score percentages.</p>
         <div id="historyList"></div>
+    </div>
+
+
+    <!-- CLASS OVERVIEW MODAL -->
+    <div class="modal-overlay" id="classOverviewModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>👥 Class Overview</h2>
+                <button class="close-btn" onclick="closeClassOverview()">&times;</button>
+            </div>
+            <p style="font-size:0.8rem; color:#8b949e; margin-bottom:10px;">Pulled from the cloud — click 🔄 Refresh List first if a student was just added on another device.</p>
+            <div id="classOverviewList" style="overflow-y:auto;"></div>
+        </div>
     </div>
 
 
@@ -327,10 +371,10 @@
         let activeEpleyMachineIdx = null;
 
 
-        // FETCH LIST OF ALL STUDENT NAMES FROM CLOUD
+        // FETCH LIST + FULL DATA OF ALL STUDENTS FROM CLOUD (used for class overview)
         async function fetchAllUsersFromCloud() {
             try {
-                const response = await fetch(`${CLOUD_CONFIG.apiUrl}?select=user_id`, {
+                const response = await fetch(`${CLOUD_CONFIG.apiUrl}?select=user_id,data,updated_at`, {
                     method: 'GET',
                     headers: {
                         'apikey': CLOUD_CONFIG.apiKey,
@@ -339,7 +383,11 @@
                 });
                 if (response.ok) {
                     const rows = await response.json();
-                    rows.forEach(r => { if (!store[r.user_id]) initUserData(r.user_id); });
+                    rows.forEach(r => {
+                        if (r.data) store[r.user_id] = r.data;
+                        else if (!store[r.user_id]) initUserData(r.user_id);
+                    });
+                    localStorage.setItem('igcse_app_store', JSON.stringify(store));
                 }
             } catch (err) {
                 console.error("Could not fetch user list:", err);
@@ -424,15 +472,23 @@
         }
 
 
+        function recordPrHistory(machine, newPr) {
+            if (!machine.prHistory) machine.prHistory = [];
+            if (machine.prHistory.length === 0 || machine.prHistory[machine.prHistory.length - 1].pr !== newPr) {
+                machine.prHistory.push({ date: new Date().toISOString().slice(0, 10), pr: newPr });
+            }
+        }
+
+
         function initUserData(userName) {
             if (!store[userName]) {
                 store[userName] = {
                     machines: [
-                        { name: "Leg Press", muscle: "Quadriceps", pr: 100 },
-                        { name: "Chest Press", muscle: "Pectorals", pr: 60 },
-                        { name: "Squat", muscle: "Quadriceps/Glutes", pr: 100 },
-                        { name: "Lat Pulldown", muscle: "Back", pr: 55 },
-                        { name: "Shoulder Press", muscle: "Deltoids", pr: 40 }
+                        { name: "Leg Press", muscle: "Quadriceps", pr: 100, prHistory: [] },
+                        { name: "Chest Press", muscle: "Pectorals", pr: 60, prHistory: [] },
+                        { name: "Squat", muscle: "Quadriceps/Glutes", pr: 100, prHistory: [] },
+                        { name: "Lat Pulldown", muscle: "Back", pr: 55, prHistory: [] },
+                        { name: "Shoulder Press", muscle: "Deltoids", pr: 40, prHistory: [] }
                     ],
                     history: []
                 };
@@ -475,6 +531,8 @@
             renderUserSelector();
             renderMachines();
             renderHistory();
+            renderRestNudge();
+            renderScoreTrendChart();
         }
 
 
@@ -526,6 +584,8 @@
             renderUserSelector();
             renderMachines();
             renderHistory();
+            renderRestNudge();
+            renderScoreTrendChart();
         }
 
 
@@ -570,6 +630,7 @@
                     </div>`;
             });
             renderSessionBuilder();
+            renderPrTrendChart();
         }
 
 
@@ -647,7 +708,9 @@
 
 
         function setMachinePR(machineIdx, appliedPR, weight, reps) {
-            store[currentUser].machines[machineIdx].pr = appliedPR;
+            const machine = store[currentUser].machines[machineIdx];
+            recordPrHistory(machine, appliedPR);
+            machine.pr = appliedPR;
             saveStore();
             renderMachines();
             closeEpleyModal();
@@ -660,7 +723,7 @@
             const muscle = document.getElementById('newMuscleGroup').value;
             const pr = parseFloat(document.getElementById('newMachine1RM').value);
             if (name && pr) {
-                store[currentUser].machines.push({ name, muscle, pr });
+                store[currentUser].machines.push({ name, muscle, pr, prHistory: [{ date: new Date().toISOString().slice(0, 10), pr }] });
                 saveStore();
                 document.getElementById('newMachineName').value = '';
                 document.getElementById('newMuscleGroup').value = '';
@@ -671,7 +734,10 @@
 
 
         function updatePR(idx, val) {
-            store[currentUser].machines[idx].pr = parseFloat(val) || 0;
+            const machine = store[currentUser].machines[idx];
+            const newPr = parseFloat(val) || 0;
+            recordPrHistory(machine, newPr);
+            machine.pr = newPr;
             saveStore();
             renderSessionBuilder();
         }
@@ -690,6 +756,7 @@
             document.querySelectorAll('.mode-card').forEach(c => c.classList.remove('active'));
             document.getElementById(`mode-${goalKey}`).classList.add('active');
             renderSessionBuilder();
+            renderRestNudge();
         }
 
 
@@ -790,19 +857,26 @@
 
 
             const successRate = Math.round((totalAchievedReps / totalTargetReps) * 100);
+            const rpe = document.getElementById('rpeSelect').value;
             const sessionData = {
                 date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+                isoDate: new Date().toISOString().slice(0, 10),
                 goalName: goal.name,
+                goalKey: currentGoal,
                 targetReps: targetRepsPerSet,
                 successRate: successRate,
-                machines: machineDetails
+                machines: machineDetails,
+                rpe: rpe ? parseInt(rpe) : null
             };
 
 
             store[currentUser].history.unshift(sessionData);
             saveStore();
             alert(`Workout saved for ${currentUser}! Session Score: ${successRate}%`);
+            document.getElementById('rpeSelect').value = '';
             renderHistory();
+            renderRestNudge();
+            renderScoreTrendChart();
         }
 
 
@@ -825,6 +899,7 @@
 
 
                 let machineSummary = item.machines.map(m => `${m.name} (${m.weight}kg): [${m.sets.join(', ')}]`).join('<br>');
+                let metaLine = item.rpe ? `<p style="font-size:0.8rem; margin-top:4px; color:var(--accent-orange);">💪 RPE ${item.rpe}/5</p>` : '';
 
 
                 container.innerHTML += `
@@ -837,12 +912,142 @@
                             <button class="btn-danger" style="padding: 4px 8px; font-size: 0.8rem; background: transparent; border: 1px solid var(--danger);" title="Delete Log" onclick="deleteLogItem(${index})">🗑️</button>
                         </div>
                         <p style="font-size:0.9rem; margin-top:8px; color:var(--accent-blue);"><b>Focus:</b> ${item.goalName}</p>
+                        ${metaLine}
                         <div class="progress-bar">
                             <div class="progress-fill" style="width: ${item.successRate}%; ${item.successRate < 70 ? 'background:var(--danger);' : item.successRate < 90 ? 'background:var(--accent-orange);' : ''}"></div>
                         </div>
                         <p style="font-size:0.8rem; margin-top:8px; color:#8b949e;">${machineSummary}</p>
                     </div>`;
             });
+        }
+
+
+        function renderRestNudge() {
+            const container = document.getElementById('restNudge');
+            const history = store[currentUser].history;
+            if (!history || history.length === 0) { container.innerHTML = ''; return; }
+
+            const last = history[0];
+            const todayStr = new Date().toISOString().slice(0, 10);
+            const lastDate = last.isoDate;
+
+            if (lastDate === todayStr) {
+                container.innerHTML = `<div style="background:rgba(210,153,34,0.15); border:1px solid var(--accent-orange); color:var(--accent-orange); padding:10px 12px; border-radius:6px; margin-bottom:12px; font-size:0.85rem;">
+                    ⚠️ You already logged a <b>${last.goalName}</b> session today. Training the same muscles again without rest can limit gains — consider a different focus or resting instead.
+                </div>`;
+            } else {
+                const daysSince = Math.round((new Date(todayStr) - new Date(lastDate)) / 86400000);
+                if (daysSince === 1 && last.goalKey === currentGoal) {
+                    container.innerHTML = `<div style="background:rgba(210,153,34,0.15); border:1px solid var(--accent-orange); color:var(--accent-orange); padding:10px 12px; border-radius:6px; margin-bottom:12px; font-size:0.85rem;">
+                        💡 You did <b>${last.goalName}</b> yesterday too. Muscles grow during rest — consider switching focus today or targeting a different muscle group.
+                    </div>`;
+                } else {
+                    container.innerHTML = '';
+                }
+            }
+        }
+
+
+        function renderPrTrendChart() {
+            const select = document.getElementById('prTrendMachine');
+            const machines = store[currentUser].machines;
+            const chartDiv = document.getElementById('prTrendChart');
+
+            if (machines.length === 0) {
+                select.innerHTML = '';
+                chartDiv.innerHTML = `<p style="color:#8b949e; font-size:0.85rem;">Add a machine to see PR trends.</p>`;
+                return;
+            }
+
+            const prevSelected = select.value;
+            select.innerHTML = machines.map((m, i) => `<option value="${i}">${m.name}</option>`).join('');
+            if (prevSelected && machines[prevSelected]) select.value = prevSelected;
+
+            const idx = parseInt(select.value) || 0;
+            const machine = machines[idx];
+            const points = (machine.prHistory && machine.prHistory.length > 0) ? machine.prHistory : [{ date: new Date().toISOString().slice(0,10), pr: machine.pr }];
+
+            chartDiv.innerHTML = buildLineChartSVG(points.map(p => ({ label: p.date, value: p.pr })), 'kg');
+        }
+
+
+        function renderScoreTrendChart() {
+            const chartDiv = document.getElementById('scoreTrendChart');
+            const history = store[currentUser].history.slice(0, 12).slice().reverse();
+            if (history.length === 0) {
+                chartDiv.innerHTML = `<p style="color:#8b949e; font-size:0.85rem;">No sessions logged yet.</p>`;
+                return;
+            }
+            chartDiv.innerHTML = buildLineChartSVG(history.map(h => ({ label: h.date, value: h.successRate })), '%');
+        }
+
+
+        function buildLineChartSVG(points, unit) {
+            if (points.length === 1) {
+                return `<div style="color:#8b949e; font-size:0.85rem; padding:10px;">Only one data point so far (${points[0].value}${unit} on ${points[0].label}). Log more sessions/PRs to see a trend line.</div>`;
+            }
+            const w = 700, h = 220, padL = 45, padR = 15, padT = 15, padB = 35;
+            const values = points.map(p => p.value);
+            const minV = Math.min(...values), maxV = Math.max(...values);
+            const range = (maxV - minV) || 1;
+            const stepX = (w - padL - padR) / (points.length - 1);
+
+            const coords = points.map((p, i) => {
+                const x = padL + i * stepX;
+                const y = padT + (h - padT - padB) * (1 - (p.value - minV) / range);
+                return { x, y, ...p };
+            });
+
+            const pathD = coords.map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ');
+            const dots = coords.map(c => `<circle cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" r="4" fill="#58a6ff"><title>${c.label}: ${c.value}${unit}</title></circle>`).join('');
+            const labels = coords.map((c, i) => (i === 0 || i === coords.length - 1 || i % Math.ceil(coords.length / 6) === 0)
+                ? `<text x="${c.x.toFixed(1)}" y="${h - 10}" fill="#8b949e" font-size="10" text-anchor="middle">${c.label}</text>` : '').join('');
+
+            return `<svg viewBox="0 0 ${w} ${h}" style="width:100%; height:auto; background:#0d1117; border:1px solid var(--card-border); border-radius:6px;">
+                <text x="${padL - 10}" y="${padT + 5}" fill="#8b949e" font-size="10" text-anchor="end">${maxV}${unit}</text>
+                <text x="${padL - 10}" y="${h - padB}" fill="#8b949e" font-size="10" text-anchor="end">${minV}${unit}</text>
+                <path d="${pathD}" fill="none" stroke="#3fb950" stroke-width="2.5"/>
+                ${dots}
+                ${labels}
+            </svg>`;
+        }
+
+
+        function openClassOverview() {
+            renderClassOverview();
+            document.getElementById('classOverviewModal').classList.add('active');
+        }
+        function closeClassOverview() {
+            document.getElementById('classOverviewModal').classList.remove('active');
+        }
+
+
+        function renderClassOverview() {
+            const container = document.getElementById('classOverviewList');
+            const todayStr = new Date().toISOString().slice(0, 10);
+            const names = Object.keys(store);
+
+            if (names.length === 0) {
+                container.innerHTML = `<p style="color:#8b949e;">No students found. Try 🔄 Refresh List first.</p>`;
+                return;
+            }
+
+            container.innerHTML = names.map(name => {
+                const hist = store[name].history || [];
+                const last = hist[0];
+                const trainedToday = last && last.isoDate === todayStr;
+                const statusBadge = trainedToday
+                    ? `<span class="score-badge badge-high">✅ Trained Today</span>`
+                    : `<span class="score-badge badge-low">⏳ Not Yet Today</span>`;
+                const lastLine = last ? `${last.date} — ${last.goalName}${last.rpe ? ` (RPE ${last.rpe}/5)` : ''}` : 'No sessions logged';
+                return `<div class="history-item">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <strong>${name}</strong>
+                        ${statusBadge}
+                    </div>
+                    <p style="font-size:0.85rem; color:#8b949e; margin-top:6px;">Last session: ${lastLine}</p>
+                </div>`;
+            }).join('');
         }
         
         function deleteLogItem(index) {
@@ -871,6 +1076,8 @@
             renderUserSelector();
             renderMachines();
             renderHistory();
+            renderRestNudge();
+            renderScoreTrendChart();
         }
         
         bootApp();
