@@ -187,6 +187,7 @@
                 <select id="userSelect" onchange="switchUser(this.value)"></select>
             </div>
             <button class="btn btn-sm" onclick="promptNewUser()">+ Add Student</button>
+            <button class="btn btn-sm" style="background:transparent;border:1px solid var(--card-border);color:var(--text-main);" onclick="refreshUserList()" title="Pull in students created on other devices">🔄 Refresh List</button>
         </div>
     </div>
 
@@ -325,6 +326,26 @@
         let activeEpleyMachineIdx = null;
 
 
+        // FETCH LIST OF ALL STUDENT NAMES FROM CLOUD
+        async function fetchAllUsersFromCloud() {
+            try {
+                const response = await fetch(`${CLOUD_CONFIG.apiUrl}?select=user_id`, {
+                    method: 'GET',
+                    headers: {
+                        'apikey': CLOUD_CONFIG.apiKey,
+                        'Authorization': `Bearer ${CLOUD_CONFIG.apiKey}`
+                    }
+                });
+                if (response.ok) {
+                    const rows = await response.json();
+                    rows.forEach(r => { if (!store[r.user_id]) initUserData(r.user_id); });
+                }
+            } catch (err) {
+                console.error("Could not fetch user list:", err);
+            }
+        }
+
+
         // FETCH DATA FROM CLOUD
         async function fetchFromCloud(userName) {
             const statusBadge = document.getElementById('cloudStatus');
@@ -453,6 +474,13 @@
             renderUserSelector();
             renderMachines();
             renderHistory();
+        }
+
+
+        async function refreshUserList() {
+            await fetchAllUsersFromCloud();
+            renderUserSelector();
+            alert("Student list refreshed from cloud.");
         }
 
 
@@ -793,6 +821,7 @@
         // Initialize App Startup Process
         async function bootApp() {
             initUserData(currentUser);
+            await fetchAllUsersFromCloud(); // Discover all students that exist in the cloud
             await fetchFromCloud(currentUser); // Try to fetch on initial load
             renderUserSelector();
             renderMachines();
