@@ -188,6 +188,7 @@
             </div>
             <button class="btn btn-sm" onclick="promptNewUser()">+ Add Student</button>
             <button class="btn btn-sm" style="background:transparent;border:1px solid var(--card-border);color:var(--text-main);" onclick="refreshUserList()" title="Pull in students created on other devices">🔄 Refresh List</button>
+            <button class="btn-danger btn-sm" onclick="deleteUser(currentUser)" title="Permanently delete the current student">🗑️ Delete Student</button>
         </div>
     </div>
 
@@ -481,6 +482,50 @@
             await fetchAllUsersFromCloud();
             renderUserSelector();
             alert("Student list refreshed from cloud.");
+        }
+
+
+        async function deleteUser(userName) {
+            const code = prompt(`Type the confirmation code to permanently delete "${userName}":`);
+            if (code === null) return; // cancelled
+            if (code !== "leoleoleo") {
+                alert("Incorrect code. Deletion cancelled.");
+                return;
+            }
+            if (!confirm(`Are you sure? This will permanently delete "${userName}" and all their data, locally and in the cloud.`)) return;
+
+            delete store[userName];
+            localStorage.setItem('igcse_app_store', JSON.stringify(store));
+
+            try {
+                const response = await fetch(`${CLOUD_CONFIG.apiUrl}?user_id=eq.${encodeURIComponent(userName)}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'apikey': CLOUD_CONFIG.apiKey,
+                        'Authorization': `Bearer ${CLOUD_CONFIG.apiKey}`
+                    }
+                });
+                if (!response.ok) {
+                    const errText = await response.text();
+                    console.error(`Cloud delete failed (${response.status}): ${errText}`);
+                    alert("Deleted locally, but the cloud copy could not be removed. Check your connection and try again.");
+                }
+            } catch (err) {
+                console.error(err);
+                alert("Deleted locally, but the cloud copy could not be removed. Check your connection and try again.");
+            }
+
+            if (currentUser === userName) {
+                const remaining = Object.keys(store);
+                currentUser = remaining.length > 0 ? remaining[0] : 'Student 1';
+                initUserData(currentUser);
+                localStorage.setItem('igcse_active_user', currentUser);
+                await fetchFromCloud(currentUser);
+            }
+
+            renderUserSelector();
+            renderMachines();
+            renderHistory();
         }
 
 
