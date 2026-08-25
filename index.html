@@ -159,11 +159,6 @@
             input, select, button { min-height: 44px; font-size: 16px !important; }
             .epley-table td, .epley-table th { padding: 8px 4px; font-size: 0.8rem; }
         }
-        @media (min-width: 601px) and (max-width: 1024px) {
-            .grid-3 { grid-template-columns: repeat(3, 1fr); }
-            .slot-picker-container { grid-template-columns: repeat(3, 1fr); }
-            .set-inputs { grid-template-columns: repeat(4, 1fr); }
-        }
     </style>
 </head>
 <body>
@@ -291,10 +286,10 @@
     </div>
 
     <script>
-        // HARDCODED SUPABASE CREDENTIALS
+        // HARDCODED SUPABASE CREDENTIALS WITH CORRECT API KEY
         const CLOUD_CONFIG = { 
             apiUrl: "https://jhbvlvnggvbrgjhgcdaw.supabase.co/rest/v1/workouts", 
-            apiKey: "sb_publishable_NlwxRGWVBF8lvK46cPywBA_UBNCjfil" 
+            apiKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpoYnZsdm5nZ3ZicmdqaGdjZGF3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc2MjUzNzgsImV4cCI6MjEwMzIwMTM3OH0.HLPqguyGiEnSC9s3uR6u4J1lpQZpRQRvGXi4ATmP1cI" 
         };
 
         const GOALS = {
@@ -402,7 +397,6 @@
             const select = document.getElementById('userSelect');
             select.innerHTML = '';
             
-            // Add user list to dropdown
             if (Object.keys(store).length === 0) initUserData(currentUser);
             
             Object.keys(store).forEach(u => {
@@ -420,7 +414,6 @@
             activeSlots = [0, 1, 2, "", ""];
             initUserData(currentUser);
             
-            // Pull their specific data from the cloud before rendering
             await fetchFromCloud(currentUser);
             
             localStorage.setItem('igcse_active_user', currentUser);
@@ -433,16 +426,9 @@
             const name = prompt("Enter Student Name or ID Number:");
             if (name && name.trim()) {
                 const cleanName = name.trim();
-                
-                // Add to dropdown immediately
                 initUserData(cleanName);
-                
-                // Try to pull their data if they already exist in the database
                 await fetchFromCloud(cleanName);
-                
                 switchUser(cleanName);
-                
-                // Save them to database if they are brand new
                 saveStore();
             }
         }
