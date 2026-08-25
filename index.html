@@ -258,21 +258,21 @@
     </div>
 
 
-    <!-- 4. PROGRESS OVER TIME -->
+    <!-- 4. LEADERBOARD -->
     <div class="card">
-        <h2>4. Progress Over Time</h2>
-        <p style="font-size: 0.85rem; color: #8b949e; margin-top:4px;">Track your journey — great source data for your IGCSE PE coursework analysis.</p>
-
-        <div style="margin-top:12px;">
-            <label style="font-size:0.85rem; color:#8b949e; display:block; margin-bottom:6px;">PR trend for machine:</label>
-            <select id="prTrendMachine" onchange="renderPrTrendChart()" style="max-width:300px;"></select>
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <h2>4. Leaderboard</h2>
+            <button class="btn btn-sm" style="width:auto; background:transparent; border:1px solid var(--card-border); color:var(--text-main);" onclick="refreshLeaderboard()">🔄 Refresh</button>
         </div>
-        <div id="prTrendChart" style="margin-top:10px;"></div>
+        <p style="font-size: 0.85rem; color: #8b949e; margin-top:4px;">Pulled from the cloud — hit refresh if a classmate's session isn't showing yet.</p>
 
-        <div style="margin-top:20px;">
-            <label style="font-size:0.85rem; color:#8b949e; display:block; margin-bottom:6px;">Session score over time (last 12 sessions):</label>
-            <div id="scoreTrendChart"></div>
-        </div>
+        <h3 style="margin-top:16px; font-size:1rem; color:var(--accent-green);">🏆 Best Session Score</h3>
+        <p style="font-size: 0.8rem; color: #8b949e; margin-top:2px; margin-bottom:8px;">Closest to hitting the full target reps × sets.</p>
+        <div id="leaderboardScores"></div>
+
+        <h3 style="margin-top:20px; font-size:1rem; color:var(--accent-blue);">💪 Top PR by Machine</h3>
+        <p style="font-size: 0.8rem; color: #8b949e; margin-top:2px; margin-bottom:8px;">Highest 1RM logged per machine, across everyone.</p>
+        <div id="leaderboardMachines"></div>
     </div>
 
 
@@ -550,7 +550,7 @@
             renderMachines();
             renderHistory();
             renderRestNudge();
-            renderScoreTrendChart();
+            renderLeaderboard();
         }
 
 
@@ -603,7 +603,7 @@
             renderMachines();
             renderHistory();
             renderRestNudge();
-            renderScoreTrendChart();
+            renderLeaderboard();
         }
 
 
@@ -648,7 +648,7 @@
                     </div>`;
             });
             renderSessionBuilder();
-            renderPrTrendChart();
+            renderLeaderboard();
         }
 
 
@@ -894,7 +894,7 @@
             document.getElementById('rpeSelect').value = '';
             renderHistory();
             renderRestNudge();
-            renderScoreTrendChart();
+            renderLeaderboard();
         }
 
 
@@ -966,68 +966,80 @@
         }
 
 
-        function renderPrTrendChart() {
-            const select = document.getElementById('prTrendMachine');
-            const machines = store[currentUser].machines;
-            const chartDiv = document.getElementById('prTrendChart');
-
-            if (machines.length === 0) {
-                select.innerHTML = '';
-                chartDiv.innerHTML = `<p style="color:#8b949e; font-size:0.85rem;">Add a machine to see PR trends.</p>`;
-                return;
-            }
-
-            const prevSelected = select.value;
-            select.innerHTML = machines.map((m, i) => `<option value="${i}">${m.name}</option>`).join('');
-            if (prevSelected && machines[prevSelected]) select.value = prevSelected;
-
-            const idx = parseInt(select.value) || 0;
-            const machine = machines[idx];
-            const points = (machine.prHistory && machine.prHistory.length > 0) ? machine.prHistory : [{ date: new Date().toISOString().slice(0,10), pr: machine.pr }];
-
-            chartDiv.innerHTML = buildLineChartSVG(points.map(p => ({ label: p.date, value: p.pr })), 'kg');
+        async function refreshLeaderboard() {
+            await fetchAllUsersFromCloud();
+            renderLeaderboard();
         }
 
 
-        function renderScoreTrendChart() {
-            const chartDiv = document.getElementById('scoreTrendChart');
-            const history = store[currentUser].history.slice(0, 12).slice().reverse();
-            if (history.length === 0) {
-                chartDiv.innerHTML = `<p style="color:#8b949e; font-size:0.85rem;">No sessions logged yet.</p>`;
-                return;
-            }
-            chartDiv.innerHTML = buildLineChartSVG(history.map(h => ({ label: h.date, value: h.successRate })), '%');
+        function renderLeaderboard() {
+            renderScoreLeaderboard();
+            renderMachineLeaderboard();
         }
 
 
-        function buildLineChartSVG(points, unit) {
-            if (points.length === 1) {
-                return `<div style="color:#8b949e; font-size:0.85rem; padding:10px;">Only one data point so far (${points[0].value}${unit} on ${points[0].label}). Log more sessions/PRs to see a trend line.</div>`;
-            }
-            const w = 700, h = 220, padL = 45, padR = 15, padT = 15, padB = 35;
-            const values = points.map(p => p.value);
-            const minV = Math.min(...values), maxV = Math.max(...values);
-            const range = (maxV - minV) || 1;
-            const stepX = (w - padL - padR) / (points.length - 1);
-
-            const coords = points.map((p, i) => {
-                const x = padL + i * stepX;
-                const y = padT + (h - padT - padB) * (1 - (p.value - minV) / range);
-                return { x, y, ...p };
+        function renderScoreLeaderboard() {
+            const container = document.getElementById('leaderboardScores');
+            const entries = [];
+            Object.keys(store).forEach(name => {
+                const hist = store[name].history || [];
+                if (hist.length === 0) return;
+                const best = hist.reduce((a, b) => (b.successRate > a.successRate ? b : a), hist[0]);
+                entries.push({ name, successRate: best.successRate, date: best.date, goalName: best.goalName });
             });
 
-            const pathD = coords.map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ');
-            const dots = coords.map(c => `<circle cx="${c.x.toFixed(1)}" cy="${c.y.toFixed(1)}" r="4" fill="#58a6ff"><title>${c.label}: ${c.value}${unit}</title></circle>`).join('');
-            const labels = coords.map((c, i) => (i === 0 || i === coords.length - 1 || i % Math.ceil(coords.length / 6) === 0)
-                ? `<text x="${c.x.toFixed(1)}" y="${h - 10}" fill="#8b949e" font-size="10" text-anchor="middle">${c.label}</text>` : '').join('');
+            if (entries.length === 0) {
+                container.innerHTML = `<p style="color:#8b949e; font-size:0.85rem;">No sessions logged yet — be the first!</p>`;
+                return;
+            }
 
-            return `<svg viewBox="0 0 ${w} ${h}" style="width:100%; height:auto; background:#0d1117; border:1px solid var(--card-border); border-radius:6px;">
-                <text x="${padL - 10}" y="${padT + 5}" fill="#8b949e" font-size="10" text-anchor="end">${maxV}${unit}</text>
-                <text x="${padL - 10}" y="${h - padB}" fill="#8b949e" font-size="10" text-anchor="end">${minV}${unit}</text>
-                <path d="${pathD}" fill="none" stroke="#3fb950" stroke-width="2.5"/>
-                ${dots}
-                ${labels}
-            </svg>`;
+            entries.sort((a, b) => b.successRate - a.successRate);
+            const medals = ['🥇', '🥈', '🥉'];
+
+            container.innerHTML = entries.map((e, i) => {
+                const isMe = e.name === currentUser;
+                let badgeClass = 'badge-high';
+                if (e.successRate < 70) badgeClass = 'badge-low';
+                else if (e.successRate < 90) badgeClass = 'badge-mid';
+                return `<div class="history-item" style="display:flex; justify-content:space-between; align-items:center; ${isMe ? 'border-color:var(--accent-blue);' : ''}">
+                    <div>
+                        <strong>${medals[i] || `#${i + 1}`} ${e.name}${isMe ? ' (You)' : ''}</strong>
+                        <p style="font-size:0.8rem; color:#8b949e; margin-top:4px;">${e.goalName} — ${e.date}</p>
+                    </div>
+                    <span class="score-badge ${badgeClass}">${e.successRate}%</span>
+                </div>`;
+            }).join('');
+        }
+
+
+        function renderMachineLeaderboard() {
+            const container = document.getElementById('leaderboardMachines');
+            const byMachine = {};
+
+            Object.keys(store).forEach(name => {
+                (store[name].machines || []).forEach(m => {
+                    if (!m.pr || m.pr <= 0) return;
+                    const key = m.name.trim().toLowerCase();
+                    if (!byMachine[key] || m.pr > byMachine[key].pr) {
+                        byMachine[key] = { name: m.name, pr: m.pr, holder: name };
+                    }
+                });
+            });
+
+            const rows = Object.values(byMachine).sort((a, b) => a.name.localeCompare(b.name));
+
+            if (rows.length === 0) {
+                container.innerHTML = `<p style="color:#8b949e; font-size:0.85rem;">No machines logged yet.</p>`;
+                return;
+            }
+
+            container.innerHTML = rows.map(r => {
+                const isMe = r.holder === currentUser;
+                return `<div class="history-item" style="display:flex; justify-content:space-between; align-items:center; ${isMe ? 'border-color:var(--accent-blue);' : ''}">
+                    <strong>${r.name}</strong>
+                    <span>👑 ${r.holder}${isMe ? ' (You)' : ''} — <b style="color:var(--accent-orange);">${r.pr} kg</b></span>
+                </div>`;
+            }).join('');
         }
 
 
@@ -1095,7 +1107,7 @@
             renderMachines();
             renderHistory();
             renderRestNudge();
-            renderScoreTrendChart();
+            renderLeaderboard();
         }
         
         bootApp();
