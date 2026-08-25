@@ -268,12 +268,26 @@
         </div>
         <p style="font-size: 0.85rem; color: #8b949e; margin-top:4px;">Pulled from the cloud — hit refresh if a classmate's session isn't showing yet.</p>
 
-        <h3 style="margin-top:16px; font-size:1rem; color:var(--accent-green);">🏆 Best Session Score</h3>
-        <p style="font-size: 0.8rem; color: #8b949e; margin-top:2px; margin-bottom:8px;">Closest to hitting the full target reps × sets.</p>
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-top:16px;">
+            <h3 style="font-size:1rem; color:var(--accent-green); margin:0;">🏆 Best Session Score</h3>
+            <div class="grid-3" id="scorePeriodTabs" style="grid-template-columns:repeat(4, auto); gap:6px; margin:0;">
+                <div class="mode-card active" data-period="daily" onclick="setScorePeriod('daily')" style="padding:5px 10px;"><small>Daily</small></div>
+                <div class="mode-card" data-period="weekly" onclick="setScorePeriod('weekly')" style="padding:5px 10px;"><small>Weekly</small></div>
+                <div class="mode-card" data-period="monthly" onclick="setScorePeriod('monthly')" style="padding:5px 10px;"><small>Monthly</small></div>
+                <div class="mode-card" data-period="alltime" onclick="setScorePeriod('alltime')" style="padding:5px 10px;"><small>All-Time</small></div>
+            </div>
+        </div>
+        <p style="font-size: 0.8rem; color: #8b949e; margin-top:6px; margin-bottom:8px;">Best score within the selected period — rewards recent, consistent effort over one lucky session.</p>
         <div id="leaderboardScores"></div>
 
-        <h3 style="margin-top:20px; font-size:1rem; color:var(--accent-blue);">💪 Top PR by Machine</h3>
-        <p style="font-size: 0.8rem; color: #8b949e; margin-top:2px; margin-bottom:8px;">Highest 1RM logged per machine, across everyone.</p>
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-top:20px;">
+            <h3 style="font-size:1rem; color:var(--accent-blue); margin:0;">💪 Top PR by Machine</h3>
+            <div class="grid-3" id="machineModeTabs" style="grid-template-columns:repeat(2, auto); gap:6px; margin:0;">
+                <div class="mode-card active" data-mode="strongest" onclick="setMachineLeaderboardMode('strongest')" style="padding:5px 10px;"><small>Strongest</small></div>
+                <div class="mode-card" data-mode="improved" onclick="setMachineLeaderboardMode('improved')" style="padding:5px 10px;"><small>Most Improved</small></div>
+            </div>
+        </div>
+        <p style="font-size: 0.8rem; color: #8b949e; margin-top:6px; margin-bottom:8px;" id="machineLeaderboardHint">Highest verified 1RM per machine, across everyone.</p>
         <div id="leaderboardMachines"></div>
     </div>
 
@@ -371,6 +385,8 @@
         let currentUser = localStorage.getItem('igcse_active_user') || 'Student 1';
         let activeSlots = [0, 1, 2, "", "", "", "", ""];
         let activeEpleyMachineIdx = null;
+        let scorePeriod = 'daily';
+        let machineLeaderboardMode = 'strongest';
 
 
         // FETCH LIST + FULL DATA OF ALL STUDENTS FROM CLOUD (used for class overview)
@@ -495,20 +511,38 @@
         function recordPrHistory(machine, newPr) {
             if (!machine.prHistory) machine.prHistory = [];
             if (machine.prHistory.length === 0 || machine.prHistory[machine.prHistory.length - 1].pr !== newPr) {
-                machine.prHistory.push({ date: new Date().toISOString().slice(0, 10), pr: newPr });
+                machine.prHistory.push({ date: new Date().toISOString().slice(0, 10), pr: newPr, verified: false });
             }
+        }
+
+
+        // A "verified" PR is a deliberate checkpoint (Epley test, or explicit Verify button) —
+        // not just any edit to the number. This is what improvement tracking is measured against.
+        function recordVerifiedPr(machine, newPr) {
+            const today = new Date().toISOString().slice(0, 10);
+            if (!machine.prHistory) machine.prHistory = [];
+            machine.prHistory.push({ date: today, pr: newPr, verified: true });
+            machine.verifiedPr = newPr;
+            machine.verifiedDate = today;
         }
 
 
         function initUserData(userName) {
             if (!store[userName]) {
+                const today = new Date().toISOString().slice(0, 10);
+                const seedMachine = (name, muscle, pr) => ({
+                    name, muscle, pr,
+                    prHistory: [{ date: today, pr, verified: true }],
+                    verifiedPr: pr,
+                    verifiedDate: today
+                });
                 store[userName] = {
                     machines: [
-                        { name: "Leg Press", muscle: "Quadriceps", pr: 100, prHistory: [] },
-                        { name: "Chest Press", muscle: "Pectorals", pr: 60, prHistory: [] },
-                        { name: "Squat", muscle: "Quadriceps/Glutes", pr: 100, prHistory: [] },
-                        { name: "Lat Pulldown", muscle: "Back", pr: 55, prHistory: [] },
-                        { name: "Shoulder Press", muscle: "Deltoids", pr: 40, prHistory: [] }
+                        seedMachine("Leg Press", "Quadriceps", 100),
+                        seedMachine("Chest Press", "Pectorals", 60),
+                        seedMachine("Squat", "Quadriceps/Glutes", 100),
+                        seedMachine("Lat Pulldown", "Back", 55),
+                        seedMachine("Shoulder Press", "Deltoids", 40)
                     ],
                     history: []
                 };
@@ -659,6 +693,13 @@
 
 
             userMachines.forEach((m, idx) => {
+                const isVerified = m.pr === m.verifiedPr;
+                const verifiedLine = m.verifiedPr != null
+                    ? `<p style="font-size:0.78rem; margin-top:6px; color:${isVerified ? 'var(--accent-green)' : 'var(--accent-orange)'};">
+                         ${isVerified ? '✅' : '⚠️'} Verified PR: <b>${m.verifiedPr} kg</b> — last checked ${m.verifiedDate}
+                         ${!isVerified ? ' (current value below is unverified)' : ''}
+                       </p>`
+                    : '';
                 container.innerHTML += `
                     <div class="machine-row" style="margin-bottom:8px; padding:10px;">
                         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
@@ -673,7 +714,9 @@
                         <div class="input-group">
                             <label style="align-self:center;">Current 1RM (kg):</label>
                             <input type="number" value="${m.pr}" onchange="updatePR(${idx}, this.value)">
+                            ${!isVerified ? `<button class="btn btn-green btn-sm" style="white-space:nowrap;" onclick="verifyCurrentPr(${idx})">✅ Verify</button>` : ''}
                         </div>
+                        ${verifiedLine}
                     </div>`;
             });
             renderSessionBuilder();
@@ -756,12 +799,12 @@
 
         function setMachinePR(machineIdx, appliedPR, weight, reps) {
             const machine = store[currentUser].machines[machineIdx];
-            recordPrHistory(machine, appliedPR);
+            recordVerifiedPr(machine, appliedPR); // testing on the Epley table is a real, deliberate test
             machine.pr = appliedPR;
             saveStore();
             renderMachines();
             closeEpleyModal();
-            alert(`Updated 1RM PR to ${appliedPR} kg based on ${weight} kg × ${reps} reps!`);
+            alert(`Verified 1RM PR: ${appliedPR} kg (based on ${weight} kg × ${reps} reps)!`);
         }
 
 
@@ -770,7 +813,13 @@
             const muscle = document.getElementById('newMuscleGroup').value;
             const pr = parseFloat(document.getElementById('newMachine1RM').value);
             if (name && pr) {
-                store[currentUser].machines.push({ name, muscle, pr, prHistory: [{ date: new Date().toISOString().slice(0, 10), pr }] });
+                const today = new Date().toISOString().slice(0, 10);
+                store[currentUser].machines.push({
+                    name, muscle, pr,
+                    prHistory: [{ date: today, pr, verified: true }],
+                    verifiedPr: pr,
+                    verifiedDate: today
+                });
                 saveStore();
                 document.getElementById('newMachineName').value = '';
                 document.getElementById('newMuscleGroup').value = '';
@@ -783,10 +832,19 @@
         function updatePR(idx, val) {
             const machine = store[currentUser].machines[idx];
             const newPr = parseFloat(val) || 0;
-            recordPrHistory(machine, newPr);
+            recordPrHistory(machine, newPr); // manual edit — logged, but NOT counted as a verified checkpoint
             machine.pr = newPr;
             saveStore();
-            renderSessionBuilder();
+            renderMachines();
+        }
+
+
+        function verifyCurrentPr(idx) {
+            const machine = store[currentUser].machines[idx];
+            if (!confirm(`Confirm "${machine.name}" 1RM is verified at ${machine.pr} kg? This locks in today as the last-checked date.`)) return;
+            recordVerifiedPr(machine, machine.pr);
+            saveStore();
+            renderMachines();
         }
 
 
@@ -925,6 +983,16 @@
             });
 
 
+            const allZero = machineDetails.every(m => m.sets.every(r => r === 0));
+            if (allZero) {
+                const stillSave = confirm(
+                    `All your sets show 0 reps — that usually means the session wasn't actually logged during training, or the numbers didn't get entered.\n\n` +
+                    `If you really did 0 reps today (e.g. rested or skipped), tap OK to save it anyway.\nOtherwise, tap Cancel and fill in what you actually did.`
+                );
+                if (!stillSave) return;
+            }
+
+
             const successRate = Math.round((totalAchievedReps / totalTargetReps) * 100);
             const rpe = document.getElementById('rpeSelect').value;
             const sessionData = {
@@ -1037,6 +1105,37 @@
         }
 
 
+        function setScorePeriod(period) {
+            scorePeriod = period;
+            document.querySelectorAll('#scorePeriodTabs .mode-card').forEach(c => c.classList.remove('active'));
+            document.querySelector(`#scorePeriodTabs [data-period="${period}"]`).classList.add('active');
+            renderScoreLeaderboard();
+        }
+
+
+        function setMachineLeaderboardMode(mode) {
+            machineLeaderboardMode = mode;
+            document.querySelectorAll('#machineModeTabs .mode-card').forEach(c => c.classList.remove('active'));
+            document.querySelector(`#machineModeTabs [data-mode="${mode}"]`).classList.add('active');
+            document.getElementById('machineLeaderboardHint').textContent = mode === 'strongest'
+                ? 'Highest verified 1RM per machine, across everyone.'
+                : 'Biggest PR gain since each student started on that machine — same shot for everyone, whatever your starting strength.';
+            renderMachineLeaderboard();
+        }
+
+
+        function isWithinPeriod(isoDateStr, period) {
+            if (period === 'alltime' || !isoDateStr) return true;
+            const today = new Date();
+            const d = new Date(isoDateStr);
+            const diffDays = Math.floor((today - d) / 86400000);
+            if (period === 'daily') return diffDays <= 0;
+            if (period === 'weekly') return diffDays <= 7;
+            if (period === 'monthly') return diffDays <= 30;
+            return true;
+        }
+
+
         function renderLeaderboard() {
             renderScoreLeaderboard();
             renderMachineLeaderboard();
@@ -1047,14 +1146,15 @@
             const container = document.getElementById('leaderboardScores');
             const entries = [];
             Object.keys(store).forEach(name => {
-                const hist = store[name].history || [];
+                const hist = (store[name].history || []).filter(h => isWithinPeriod(h.isoDate, scorePeriod));
                 if (hist.length === 0) return;
                 const best = hist.reduce((a, b) => (b.successRate > a.successRate ? b : a), hist[0]);
                 entries.push({ name, successRate: best.successRate, date: best.date, goalName: best.goalName });
             });
 
             if (entries.length === 0) {
-                container.innerHTML = `<p style="color:#8b949e; font-size:0.85rem;">No sessions logged yet — be the first!</p>`;
+                const periodLabel = { daily: 'today', weekly: 'this week', monthly: 'this month', alltime: 'yet' }[scorePeriod];
+                container.innerHTML = `<p style="color:#8b949e; font-size:0.85rem;">No sessions logged ${periodLabel} — be the first!</p>`;
                 return;
             }
 
@@ -1085,8 +1185,24 @@
                 (store[name].machines || []).forEach(m => {
                     if (!m.pr || m.pr <= 0) return;
                     const key = m.name.trim().toLowerCase();
-                    if (!byMachine[key] || m.pr > byMachine[key].pr) {
-                        byMachine[key] = { name: m.name, pr: m.pr, holder: name };
+
+                    if (machineLeaderboardMode === 'strongest') {
+                        const rankPr = m.verifiedPr != null ? m.verifiedPr : m.pr;
+                        if (!byMachine[key] || rankPr > byMachine[key].value) {
+                            byMachine[key] = { name: m.name, value: rankPr, holder: name };
+                        }
+                    } else {
+                        // Most Improved: gain = latest VERIFIED PR - first VERIFIED PR on this machine.
+                        // Unverified manual edits don't count toward or against this — only real checkpoints do.
+                        const verifiedHist = (m.prHistory || []).filter(h => h.verified);
+                        if (verifiedHist.length < 2) return; // needs at least 2 verified checkpoints to show a gain
+                        const firstVerifiedPr = verifiedHist[0].pr;
+                        const latestVerifiedPr = verifiedHist[verifiedHist.length - 1].pr;
+                        const gain = latestVerifiedPr - firstVerifiedPr;
+                        if (gain <= 0) return;
+                        if (!byMachine[key] || gain > byMachine[key].value) {
+                            byMachine[key] = { name: m.name, value: gain, holder: name };
+                        }
                     }
                 });
             });
@@ -1094,15 +1210,19 @@
             const rows = Object.values(byMachine).sort((a, b) => a.name.localeCompare(b.name));
 
             if (rows.length === 0) {
-                container.innerHTML = `<p style="color:#8b949e; font-size:0.85rem;">No machines logged yet.</p>`;
+                container.innerHTML = machineLeaderboardMode === 'strongest'
+                    ? `<p style="color:#8b949e; font-size:0.85rem;">No machines logged yet.</p>`
+                    : `<p style="color:#8b949e; font-size:0.85rem;">No improvement to show yet — PRs need at least two recorded values (e.g. retest with the Epley table) to measure a gain.</p>`;
                 return;
             }
 
             container.innerHTML = rows.map(r => {
                 const isMe = r.holder === currentUser;
+                const valueLabel = machineLeaderboardMode === 'strongest' ? `${r.value} kg` : `+${r.value} kg`;
+                const icon = machineLeaderboardMode === 'strongest' ? '👑' : '📈';
                 return `<div class="history-item" style="display:flex; justify-content:space-between; align-items:center; ${isMe ? 'border-color:var(--accent-blue);' : ''}">
                     <strong>${r.name}</strong>
-                    <span>👑 ${r.holder}${isMe ? ' (You)' : ''} — <b style="color:var(--accent-orange);">${r.pr} kg</b></span>
+                    <span>${icon} ${r.holder}${isMe ? ' (You)' : ''} — <b style="color:var(--accent-orange);">${valueLabel}</b></span>
                 </div>`;
             }).join('');
         }
