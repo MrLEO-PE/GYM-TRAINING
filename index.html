@@ -192,6 +192,7 @@
             <button class="btn btn-sm" style="background:transparent;border:1px solid var(--card-border);color:var(--text-main);" onclick="refreshUserList()" title="Pull in students created on other devices">🔄 Refresh List</button>
             <button class="btn-danger btn-sm" onclick="deleteUser(currentUser)" title="Permanently delete the current student">🗑️ Delete Student</button>
             <button class="btn btn-sm" style="background:var(--accent-orange); color:#0d1117;" onclick="openClassOverview()">👥 Class Overview</button>
+            <button class="btn btn-sm" style="background:var(--accent-green); color:#0d1117;" onclick="openIgcseLog()">📄 IGCSE Log</button>
         </div>
     </div>
 
@@ -253,6 +254,54 @@
                 <textarea id="editSafetyRule" rows="3" style="width:100%; background:#0d1117; color:var(--text-main); border:1px solid var(--card-border); border-radius:6px; padding:8px; font-family:inherit; font-size:0.9rem;"></textarea>
             </div>
             <button class="btn btn-green" style="margin-top:14px;" onclick="submitEditMachine()">Save Changes</button>
+        </div>
+    </div>
+
+
+    <!-- IGCSE WEIGHT TRAINING LOG MODAL -->
+    <div class="modal-overlay" id="igcseModal">
+        <div class="modal-content" style="max-width:560px;">
+            <div class="modal-header">
+                <h2>📄 IGCSE Weight Training Log</h2>
+                <button class="close-btn" onclick="closeIgcseLog()">&times;</button>
+            </div>
+            <p style="font-size:0.82rem; color:#8b949e; margin-bottom:12px;">
+                Fills the official Cambridge form for <b id="igcseWho" style="color:#fff;"></b> from their saved sessions.
+                Details below are remembered for next time.
+            </p>
+            <div id="igcseDataSummary" style="font-size:0.82rem; background:rgba(88,166,255,0.1); border:1px solid var(--accent-blue); border-radius:6px; padding:10px; margin-bottom:14px;"></div>
+
+            <div class="input-group" style="margin-top:0;">
+                <div class="slot-item" style="flex:1;">
+                    <label>Syllabus &amp; component</label>
+                    <select id="igcseSyllabus">
+                        <option value="0413/02 Physical Education">0413/02 Physical Education</option>
+                        <option value="0995/02 Physical Education">0995/02 Physical Education</option>
+                        <option value="5016/02 Physical Education">5016/02 Physical Education</option>
+                    </select>
+                </div>
+            </div>
+            <div class="input-group">
+                <div class="slot-item" style="flex:1;"><label>Centre number</label><input type="text" id="igcseCentre" placeholder="e.g. MY123"></div>
+                <div class="slot-item" style="flex:1;"><label>Candidate number</label><input type="text" id="igcseCandNo" placeholder="e.g. 0042"></div>
+            </div>
+            <div class="input-group">
+                <div class="slot-item" style="flex:1;"><label>Body mass (kg)</label><input type="number" id="igcseMass" placeholder="e.g. 64"></div>
+                <div class="slot-item" style="flex:1;">
+                    <label>Gender</label>
+                    <select id="igcseGender"><option value="">--</option><option value="Male">Male</option><option value="Female">Female</option></select>
+                </div>
+            </div>
+            <div class="input-group">
+                <div class="slot-item" style="flex:1;"><label>Related activity</label><input type="text" id="igcseActivity" placeholder="e.g. Rugby"></div>
+            </div>
+            <div class="input-group">
+                <div class="slot-item" style="flex:1;"><label>Training intentions</label><input type="text" id="igcseIntent" placeholder="e.g. Improving muscular strength"></div>
+            </div>
+
+            <button class="btn btn-green" style="margin-top:14px;" onclick="generateIgcseLog()">⬇️ Generate &amp; Download PDF</button>
+            <input type="file" id="igcseTemplatePicker" accept="application/pdf" style="display:none;">
+            <p id="igcseStatus" style="font-size:0.8rem; color:#8b949e; margin-top:10px;"></p>
         </div>
     </div>
 
@@ -1787,6 +1836,186 @@
                     <span>${icon} ${r.holder}${isMe ? ' (You)' : ''} — <b style="color:var(--accent-orange);">${valueLabel}</b></span>
                 </div>`;
             }).join('');
+        }
+
+
+
+        // ---- IGCSE WEIGHT TRAINING LOG EXPORT ----
+        // Fills the official Cambridge form (8 session columns x 13 exercise rows).
+        const IGCSE_TEMPLATE_URL = 'weight_training_log_template.pdf';
+        const PDFLIB_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js';
+
+        function shortDate(iso) {
+            if (!iso) return '';
+            const p = iso.split('-');
+            return p.length === 3 ? `${p[2]}/${p[1]}` : iso;
+        }
+
+        // "60/10/4" = weight / reps / sets. Reps shown as a range when sets differed.
+        function wrsCell(md) {
+            const done = (md.sets || []).filter(r => r > 0);
+            if (!done.length) return '';
+            const mn = Math.min(...done), mx = Math.max(...done);
+            return `${md.weight}/${mn === mx ? mn : mn + '-' + mx}/${done.length}`;
+        }
+
+        // Pulls the last 8 sessions (oldest first) and the exercises used in them.
+        function buildIgcseData(userName) {
+            const u = store[userName] || {};
+            const sessions = (u.history || []).slice(0, 8).reverse();
+            const order = (u.machines || []).map(m => m.name);
+            const used = [];
+            sessions.forEach(s => (s.machines || []).forEach(md => {
+                if (!used.includes(md.name)) used.push(md.name);
+            }));
+            used.sort((a, b) => {
+                const ia = order.indexOf(a), ib = order.indexOf(b);
+                return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+            });
+            const exercises = used.slice(0, 13);
+
+            const rows = exercises.map(name => {
+                const machine = (u.machines || []).find(m => m.name === name) || {};
+                const vHist = (machine.prHistory || []).filter(h => h.verified);
+                const baseline = vHist.length ? vHist[0] : null;
+                const latest = vHist.length ? vHist[vHist.length - 1] : null;
+                const cells = sessions.map(s => {
+                    const md = (s.machines || []).find(m => m.name === name);
+                    return md ? wrsCell(md) : '';
+                });
+                return {
+                    name,
+                    baselinePr: baseline ? baseline.pr : (machine.pr || ''),
+                    baselineDate: baseline ? baseline.date : '',
+                    retestPr: (latest && baseline && latest.pr !== baseline.pr) ? latest.pr : '',
+                    retestDate: (latest && baseline && latest.pr !== baseline.pr) ? latest.date : '',
+                    cells
+                };
+            });
+            return { sessions, exercises, rows };
+        }
+
+        function openIgcseLog() {
+            const d = buildIgcseData(currentUser);
+            document.getElementById('igcseWho').textContent = currentUser;
+            const el = document.getElementById('igcseDataSummary');
+            if (d.sessions.length === 0) {
+                el.innerHTML = `⚠️ <b>No sessions saved yet</b> — the exercise table will be empty. Log at least one workout first.`;
+            } else {
+                el.innerHTML = `✅ <b>${d.sessions.length} session${d.sessions.length > 1 ? 's' : ''}</b> and `
+                    + `<b>${d.exercises.length} exercise${d.exercises.length > 1 ? 's' : ''}</b> will be written to the sheet.`
+                    + (d.sessions.length === 8 ? `<br><span style="color:#8b949e;">The sheet holds 8 sessions — the most recent 8 are used.</span>` : '');
+            }
+            const saved = (store[currentUser] && store[currentUser].igcse) || {};
+            document.getElementById('igcseSyllabus').value = saved.syllabus || '0413/02 Physical Education';
+            document.getElementById('igcseCentre').value = saved.centre || '';
+            document.getElementById('igcseCandNo').value = saved.candNo || '';
+            document.getElementById('igcseMass').value = saved.mass || '';
+            document.getElementById('igcseGender').value = saved.gender || '';
+            document.getElementById('igcseActivity').value = saved.activity || '';
+            document.getElementById('igcseIntent').value = saved.intent || '';
+            document.getElementById('igcseStatus').textContent = '';
+            document.getElementById('igcseModal').classList.add('active');
+        }
+        function closeIgcseLog() { document.getElementById('igcseModal').classList.remove('active'); }
+
+        function loadPdfLib() {
+            if (window.PDFLib) return Promise.resolve();
+            return new Promise((res, rej) => {
+                const s = document.createElement('script');
+                s.src = PDFLIB_CDN;
+                s.onload = res;
+                s.onerror = () => rej(new Error('Could not load the PDF library (no internet?)'));
+                document.head.appendChild(s);
+            });
+        }
+
+        // Tries the template next to index.html; falls back to asking the user to pick the file.
+        function getTemplateBytes() {
+            return fetch(IGCSE_TEMPLATE_URL)
+                .then(r => { if (!r.ok) throw new Error('not found'); return r.arrayBuffer(); })
+                .catch(() => new Promise((res, rej) => {
+                    const picker = document.getElementById('igcseTemplatePicker');
+                    document.getElementById('igcseStatus').textContent =
+                        'Template not found on the site — please select weight_training_log_template.pdf';
+                    picker.value = '';
+                    picker.onchange = () => {
+                        const f = picker.files[0];
+                        if (!f) return rej(new Error('No template selected.'));
+                        f.arrayBuffer().then(res, rej);
+                    };
+                    picker.click();
+                }));
+        }
+
+        async function generateIgcseLog() {
+            const status = document.getElementById('igcseStatus');
+            const hdr = {
+                syllabus: document.getElementById('igcseSyllabus').value,
+                centre:   document.getElementById('igcseCentre').value.trim(),
+                candNo:   document.getElementById('igcseCandNo').value.trim(),
+                mass:     document.getElementById('igcseMass').value.trim(),
+                gender:   document.getElementById('igcseGender').value,
+                activity: document.getElementById('igcseActivity').value.trim(),
+                intent:   document.getElementById('igcseIntent').value.trim()
+            };
+            store[currentUser].igcse = hdr;   // remember for next time
+            saveStore();
+
+            try {
+                status.textContent = '⏳ Preparing...';
+                await loadPdfLib();
+                const bytes = await getTemplateBytes();
+                status.textContent = '⏳ Filling the form...';
+
+                const { PDFDocument, StandardFonts } = PDFLib;
+                const doc = await PDFDocument.load(bytes);
+                const form = doc.getForm();
+                const setTxt = (n, v) => { try { form.getTextField(n).setText(String(v ?? '')); } catch (e) {} };
+                const setSel = (n, v) => { try { if (v) form.getDropdown(n).select(v); } catch (e) {} };
+
+                const d = buildIgcseData(currentUser);
+
+                setSel('Syllabus and component', hdr.syllabus);
+                setSel('Gender', hdr.gender);
+                setTxt('Centre number', hdr.centre);
+                setTxt('Candidate number', hdr.candNo);
+                setTxt('Candidate name', currentUser);
+                setTxt('Body mass', hdr.mass);
+                setTxt('Related activity', hdr.activity);
+                setTxt('Training intentions_1', hdr.intent);
+                setTxt('1 Rep max_1', 'Epley formula: 1RM = W x (1 + R/30)');
+
+                // Date_1 heads the 1RM kg column, Date_2..9 the 8 sessions, Date_10 the 1RM test column
+                const firstBase = d.rows.find(r => r.baselineDate);
+                const lastRetest = [...d.rows].reverse().find(r => r.retestDate);
+                setTxt('Date_1_1', firstBase ? shortDate(firstBase.baselineDate) : '');
+                d.sessions.forEach((s, i) => setTxt(`Date_${i + 2}_1`, shortDate(s.isoDate)));
+                setTxt('Date_10_1', lastRetest ? shortDate(lastRetest.retestDate) : '');
+
+                d.rows.forEach((row, ri) => {
+                    const n = ri + 1;
+                    setTxt(`ExerciseRow${n}_1`, row.name);
+                    setTxt(`1RM kgRow${n}_1`, row.baselinePr);
+                    setTxt(`1RM testRow${n}_1`, row.retestPr);
+                    row.cells.forEach((c, ci) => setTxt(`WRS${ci + 1}_Row${n}_1`, c));
+                });
+
+                form.updateFieldAppearances(await doc.embedFont(StandardFonts.Helvetica));
+                const out = await doc.save();
+
+                const blob = new Blob([out], { type: 'application/pdf' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `Weight_Training_Log_${currentUser.replace(/[^a-z0-9]+/gi, '_')}.pdf`;
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+
+                status.textContent = '✅ Downloaded. Open it to check, then print or submit.';
+            } catch (err) {
+                console.error(err);
+                status.textContent = '⚠️ ' + err.message;
+            }
         }
 
 
