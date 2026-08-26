@@ -205,14 +205,39 @@
         <p style="font-size: 0.85rem; color: #8b949e; margin-top:4px;">These machines are shared by the whole class. Enter <b>your own</b> 1RM for each, then tap Verify. <b id="currentUserLabel" style="color:#fff;"></b></p>
         <div id="machineList" style="margin-top:10px;"></div>
 
-        <p style="font-size:0.85rem; color:#8b949e; margin-top:16px; margin-bottom:6px;">Add a machine the class uses (appears for everyone):</p>
+        <p style="font-size:0.85rem; color:#8b949e; margin-top:16px; margin-bottom:6px;">Add a machine the class uses (appears for everyone). Pick up to 3 muscles it works:</p>
         <div class="input-group">
             <input type="text" id="newMachineName" placeholder="Machine Name (e.g., Cable Row)">
-            <select id="newMuscleGroup">
-                <option value="">-- Main muscle group --</option>
-            </select>
+        </div>
+        <div class="input-group">
+            <select id="newMuscle1"></select>
+            <select id="newMuscle2"></select>
+            <select id="newMuscle3"></select>
         </div>
         <button class="btn" onclick="addMachine()">+ Add Machine for the Class</button>
+    </div>
+
+
+    <!-- EDIT MACHINE MODAL -->
+    <div class="modal-overlay" id="editMachineModal">
+        <div class="modal-content" style="max-width:520px;">
+            <div class="modal-header">
+                <h2>✏️ Edit Machine</h2>
+                <button class="close-btn" onclick="closeEditMachine()">&times;</button>
+            </div>
+            <p style="font-size:0.8rem; color:#8b949e; margin-bottom:10px;">Changes apply to the whole class. Students keep their own PRs.</p>
+            <div class="slot-item">
+                <label>Machine name</label>
+                <input type="text" id="editMachineName">
+            </div>
+            <div class="slot-item" style="margin-top:10px;">
+                <label>Muscles worked (up to 3)</label>
+                <select id="editMuscle1" style="margin-bottom:6px;"></select>
+                <select id="editMuscle2" style="margin-bottom:6px;"></select>
+                <select id="editMuscle3"></select>
+            </div>
+            <button class="btn btn-green" style="margin-top:14px;" onclick="submitEditMachine()">Save Changes</button>
+        </div>
     </div>
 
 
@@ -401,13 +426,27 @@
         const TEACHER_CODE = "leoleoleo";
         const MACHINES_KEY = "__CLASS_MACHINES__"; // shared row: the class equipment list
 
-        // Standard muscle groups (matches the anatomy chart labels)
-        const MUSCLE_GROUPS = [
-            "Pectorals (chest)", "Latissimus dorsi (back)", "Trapezius (upper back)",
-            "Deltoids (shoulders)", "Biceps brachii", "Triceps brachii", "Forearms",
-            "Rectus abdominis (abs)", "Obliques", "Erector spinae (lower back)",
-            "Quadriceps", "Hamstrings", "Gluteals", "Adductors", "Calves", "Full body"
-        ];
+        // Every muscle labelled on the two anatomy charts (English names only),
+        // grouped by region so the dropdown stays scannable.
+        const MUSCLE_REGIONS = {
+            "Head & Neck": ["Occipitofrontalis", "Sternocleidomastoid", "Splenius capitis"],
+            "Shoulders & Upper Back": ["Deltoid", "Trapezius", "Levator scapulae", "Rhomboids",
+                "Supraspinatus", "Infraspinatus", "Teres major", "Teres minor"],
+            "Chest": ["Pectoralis major", "Pectoralis minor", "Serratus anterior"],
+            "Back": ["Latissimus dorsi", "Serratus posterior inferior"],
+            "Upper Arm": ["Biceps brachii", "Triceps brachii", "Brachialis", "Brachioradialis"],
+            "Forearm": ["Pronator teres", "Flexor carpi radialis", "Flexor carpi ulnaris",
+                "Extensor carpi radialis", "Extensor carpi ulnaris", "Extensor digitorum"],
+            "Core": ["Rectus abdominis", "External oblique"],
+            "Hips & Glutes": ["Iliopsoas", "Tensor fasciae latae", "Pectineus", "Gluteus maximus",
+                "Gluteus medius", "Gluteus minimus", "Gemellus muscles"],
+            "Thigh": ["Rectus femoris", "Vastus lateralis", "Vastus medialis", "Sartorius",
+                "Adductor longus", "Gracilis", "Biceps femoris", "Semitendinosus", "Semimembranosus"],
+            "Lower Leg": ["Gastrocnemius", "Soleus", "Tibialis anterior", "Tibialis posterior",
+                "Fibularis longus (peroneus longus)"]
+        };
+
+        const MUSCLE_GROUPS = Object.values(MUSCLE_REGIONS).flat();
 
         let classMachines = []; // [{ name, muscle }] — shared across every student
 
@@ -583,7 +622,8 @@
                 const existing = u.machines.find(m => m.name.trim().toLowerCase() === key);
                 if (existing) {
                     existing.name = cm.name;     // keep naming identical class-wide
-                    existing.muscle = cm.muscle; // muscle group is defined centrally
+                    existing.muscle = cm.muscle; // muscle list is defined centrally
+                    existing.muscles = cm.muscles || (cm.muscle ? [cm.muscle] : []);
                     return;
                 }
                 // Restore from archive if this machine was previously removed
@@ -592,11 +632,13 @@
                     const restored = u.archivedMachines.splice(archivedIdx, 1)[0];
                     restored.name = cm.name;
                     restored.muscle = cm.muscle;
+                    restored.muscles = cm.muscles || (cm.muscle ? [cm.muscle] : []);
                     u.machines.push(restored);
                 } else {
                     u.machines.push({
-                        name: cm.name, muscle: cm.muscle, pr: 0,
-                        prHistory: [], verifiedPr: null, verifiedDate: null
+                        name: cm.name, muscle: cm.muscle,
+                        muscles: cm.muscles || (cm.muscle ? [cm.muscle] : []),
+                        pr: 0, prHistory: [], verifiedPr: null, verifiedDate: null
                     });
                 }
             });
@@ -632,10 +674,41 @@
         }
 
 
+        function muscleOptionsHTML(placeholder) {
+            let html = `<option value="">${placeholder}</option>`;
+            Object.entries(MUSCLE_REGIONS).forEach(([region, muscles]) => {
+                html += `<optgroup label="${region}">` +
+                    muscles.map(m => `<option value="${m}">${m}</option>`).join('') +
+                    `</optgroup>`;
+            });
+            return html;
+        }
+
+
         function populateMuscleDropdown() {
-            const sel = document.getElementById('newMuscleGroup');
-            sel.innerHTML = '<option value="">-- Main muscle group --</option>' +
-                MUSCLE_GROUPS.map(g => `<option value="${g}">${g}</option>`).join('');
+            document.getElementById('newMuscle1').innerHTML = muscleOptionsHTML('-- Main muscle --');
+            document.getElementById('newMuscle2').innerHTML = muscleOptionsHTML('-- 2nd muscle (optional) --');
+            document.getElementById('newMuscle3').innerHTML = muscleOptionsHTML('-- 3rd muscle (optional) --');
+            document.getElementById('editMuscle1').innerHTML = muscleOptionsHTML('-- Main muscle --');
+            document.getElementById('editMuscle2').innerHTML = muscleOptionsHTML('-- 2nd muscle (optional) --');
+            document.getElementById('editMuscle3').innerHTML = muscleOptionsHTML('-- 3rd muscle (optional) --');
+        }
+
+
+        // Reads up to 3 dropdowns, drops blanks and duplicates, keeps order picked.
+        function collectMuscles(ids) {
+            const picked = [];
+            ids.forEach(id => {
+                const v = document.getElementById(id).value;
+                if (v && !picked.includes(v)) picked.push(v);
+            });
+            return picked;
+        }
+
+
+        function musclesLabel(machine) {
+            if (Array.isArray(machine.muscles) && machine.muscles.length) return machine.muscles.join(', ');
+            return machine.muscle || '';
         }
 
 
@@ -854,7 +927,7 @@
                     <div class="machine-row" style="margin-bottom:8px; padding:10px; ${neverVerified ? 'border-color:var(--accent-blue);' : ''}">
                         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
                             <div>
-                                <strong>${m.name}</strong> <span style="font-size:0.85rem; color:#8b949e;">(${m.muscle})</span>
+                                <strong>${m.name}</strong> <span style="font-size:0.85rem; color:#8b949e;">${musclesLabel(m) ? '— ' + musclesLabel(m) : ''}</span>
                             </div>
                             <div style="display:flex; gap:6px; align-items:center;">
                                 <button class="btn-epley" onclick="openEpleyModal(${idx})">🧮 Epley Table</button>
@@ -971,12 +1044,11 @@
         }
 
 
-        // Adding is open to everyone — it's shared class equipment, so it appears for all students.
         async function addMachine() {
             const name = document.getElementById('newMachineName').value.trim();
-            const muscle = document.getElementById('newMuscleGroup').value;
+            const muscles = collectMuscles(['newMuscle1', 'newMuscle2', 'newMuscle3']);
             if (!name) { alert("Enter a machine name."); return; }
-            if (!muscle) { alert("Pick the main muscle group this machine works."); return; }
+            if (muscles.length === 0) { alert("Pick at least one muscle this machine works."); return; }
 
             const existing = classMachines.find(m => m.name.trim().toLowerCase() === name.toLowerCase());
             if (existing) {
@@ -984,39 +1056,61 @@
                 return;
             }
 
-            classMachines.push({ name, muscle });
+            classMachines.push({ name, muscles, muscle: muscles.join(', ') });
             await saveClassMachines();
             Object.keys(store).forEach(n => reconcileMachines(n));
             saveStore();
 
             document.getElementById('newMachineName').value = '';
-            document.getElementById('newMuscleGroup').value = '';
+            ['newMuscle1', 'newMuscle2', 'newMuscle3'].forEach(id => document.getElementById(id).value = '');
             renderMachines();
             showToast(`✅ "${name}" added for the whole class.`, 2500);
         }
 
 
+        let editingMachineName = null;
+
         // Editing changes it for every student — teacher code required.
-        async function editMachine(idx) {
+        function editMachine(idx) {
             const machine = store[currentUser].machines[idx];
             const shared = classMachines.find(m => m.name.trim().toLowerCase() === machine.name.trim().toLowerCase());
             if (!shared) { alert("This machine isn't on the shared list."); return; }
             if (!askTeacherCode(`edit "${machine.name}" for the whole class`)) return;
 
-            const newName = prompt("Machine name:", shared.name);
-            if (newName === null) return;
-            const cleanName = newName.trim();
+            editingMachineName = shared.name;
+            document.getElementById('editMachineName').value = shared.name;
+            const current = Array.isArray(shared.muscles) ? shared.muscles : (shared.muscle ? [shared.muscle] : []);
+            ['editMuscle1', 'editMuscle2', 'editMuscle3'].forEach((id, i) => {
+                const sel = document.getElementById(id);
+                sel.value = MUSCLE_GROUPS.includes(current[i]) ? current[i] : '';
+            });
+            document.getElementById('editMachineModal').classList.add('active');
+        }
+
+
+        function closeEditMachine() {
+            document.getElementById('editMachineModal').classList.remove('active');
+            editingMachineName = null;
+        }
+
+
+        async function submitEditMachine() {
+            const shared = classMachines.find(m => m.name === editingMachineName);
+            if (!shared) { closeEditMachine(); return; }
+
+            const cleanName = document.getElementById('editMachineName').value.trim();
             if (!cleanName) { alert("Name can't be empty."); return; }
 
             const clash = classMachines.find(m => m !== shared && m.name.trim().toLowerCase() === cleanName.toLowerCase());
             if (clash) { alert(`"${clash.name}" already exists in the list.`); return; }
 
-            const newMuscle = prompt(`Muscle group for "${cleanName}":\n\n${MUSCLE_GROUPS.join('\n')}`, shared.muscle);
-            if (newMuscle === null) return;
+            const muscles = collectMuscles(['editMuscle1', 'editMuscle2', 'editMuscle3']);
+            if (muscles.length === 0) { alert("Pick at least one muscle this machine works."); return; }
 
             const oldName = shared.name;
             shared.name = cleanName;
-            shared.muscle = newMuscle.trim() || shared.muscle;
+            shared.muscles = muscles;
+            shared.muscle = muscles.join(', ');
 
             // Carry every student's PR across the rename so no data is orphaned
             Object.keys(store).forEach(n => {
@@ -1031,8 +1125,9 @@
             await saveClassMachines();
             Object.keys(store).forEach(n => reconcileMachines(n));
             saveStore();
+            closeEditMachine();
             renderMachines();
-            showToast(`✅ Updated to "${shared.name}" for the whole class.`, 2500);
+            showToast(`✅ Updated "${shared.name}" for the whole class.`, 2500);
         }
 
 
@@ -1582,14 +1677,17 @@
             Object.keys(store).forEach(n => {
                 (store[n].machines || []).forEach(m => {
                     const key = (m.name || '').trim().toLowerCase();
-                    if (key && !seen.has(key)) seen.set(key, { name: m.name.trim(), muscle: m.muscle || '' });
+                    if (key && !seen.has(key)) seen.set(key, { name: m.name.trim(), muscle: m.muscle || '', muscles: Array.isArray(m.muscles) ? m.muscles : (m.muscle ? [m.muscle] : []) });
                 });
             });
             if (seen.size === 0) {
                 // Nothing to migrate — start the class off with a sensible default set
-                [["Leg Press","Quadriceps"],["Chest Press","Pectorals (chest)"],["Squat","Quadriceps"],
-                 ["Lat Pulldown","Latissimus dorsi (back)"],["Shoulder Press","Deltoids (shoulders)"]]
-                    .forEach(([name, muscle]) => seen.set(name.toLowerCase(), { name, muscle }));
+                [["Leg Press", ["Rectus femoris", "Vastus lateralis", "Gluteus maximus"]],
+                 ["Chest Press", ["Pectoralis major", "Deltoid", "Triceps brachii"]],
+                 ["Squat", ["Rectus femoris", "Gluteus maximus", "Biceps femoris"]],
+                 ["Lat Pulldown", ["Latissimus dorsi", "Biceps brachii", "Trapezius"]],
+                 ["Shoulder Press", ["Deltoid", "Triceps brachii", "Trapezius"]]]
+                    .forEach(([name, muscles]) => seen.set(name.toLowerCase(), { name, muscles, muscle: muscles.join(', ') }));
             }
             classMachines = Array.from(seen.values());
             await saveClassMachines();
