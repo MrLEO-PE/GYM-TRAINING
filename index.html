@@ -199,9 +199,16 @@
     <!-- 1. MASTER MACHINE LIBRARY & 1RM BASELINE -->
     <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-            <h2>1. Class Machines &amp; My 1RM</h2>
-            <button class="btn btn-sm" style="width:auto; background:transparent; border:1px solid var(--accent-blue); color:var(--accent-blue);" onclick="openMuscleChart()">🧍 Muscle Chart</button>
+            <h2 onclick="toggleMachineSection()" style="cursor:pointer; user-select:none;">
+                <span id="machineToggleArrow">▼</span> 1. Class Machines &amp; My 1RM
+            </h2>
+            <div style="display:flex; gap:6px;">
+                <button class="btn btn-sm" style="width:auto; background:transparent; border:1px solid var(--accent-blue); color:var(--accent-blue);" onclick="openMuscleChart()">🧍 Muscle Chart</button>
+                <button class="btn btn-sm" style="width:auto; background:transparent; border:1px solid var(--card-border); color:var(--text-main);" onclick="toggleMachineSection()"><span id="machineToggleLabel">Hide</span></button>
+            </div>
         </div>
+        <p id="machineSummary" style="font-size:0.85rem; color:#8b949e; margin-top:6px; display:none; cursor:pointer;" onclick="toggleMachineSection()"></p>
+        <div id="machineSectionBody">
         <p style="font-size: 0.85rem; color: #8b949e; margin-top:4px;">These machines are shared by the whole class. Enter <b>your own</b> 1RM for each, then tap Verify. <b id="currentUserLabel" style="color:#fff;"></b></p>
         <div id="machineList" style="margin-top:10px;"></div>
 
@@ -215,6 +222,7 @@
             <select id="newMuscle3"></select>
         </div>
         <button class="btn" onclick="addMachine()">+ Add Machine for the Class</button>
+        </div>
     </div>
 
 
@@ -236,7 +244,33 @@
                 <select id="editMuscle2" style="margin-bottom:6px;"></select>
                 <select id="editMuscle3"></select>
             </div>
+            <div class="slot-item" style="margin-top:12px;">
+                <label>✅ Right Position — one cue per line (leave blank to use built-in)</label>
+                <textarea id="editSafetySet" rows="3" style="width:100%; background:#0d1117; color:var(--text-main); border:1px solid var(--card-border); border-radius:6px; padding:8px; font-family:inherit; font-size:0.9rem;"></textarea>
+            </div>
+            <div class="slot-item" style="margin-top:10px;">
+                <label>⚠️ Safety Rules — one per line</label>
+                <textarea id="editSafetyRule" rows="3" style="width:100%; background:#0d1117; color:var(--text-main); border:1px solid var(--card-border); border-radius:6px; padding:8px; font-family:inherit; font-size:0.9rem;"></textarea>
+            </div>
             <button class="btn btn-green" style="margin-top:14px;" onclick="submitEditMachine()">Save Changes</button>
+        </div>
+    </div>
+
+
+    <!-- SAFETY MODAL -->
+    <div class="modal-overlay" id="safetyModal">
+        <div class="modal-content" style="max-width:480px;">
+            <div class="modal-header">
+                <h2 id="safetyTitle">🛡️ Safety</h2>
+                <button class="close-btn" onclick="closeSafety()">&times;</button>
+            </div>
+            <h3 style="font-size:0.95rem; color:var(--accent-blue); margin-bottom:6px;">✅ Right Position</h3>
+            <ul id="safetySetup" style="margin:0 0 16px 18px; font-size:0.92rem; line-height:1.7;"></ul>
+            <h3 style="font-size:0.95rem; color:var(--danger); margin-bottom:6px;">⚠️ Safety Rules</h3>
+            <ul id="safetyRules" style="margin:0 0 8px 18px; font-size:0.92rem; line-height:1.7;"></ul>
+            <p id="safetyNote" style="display:none; font-size:0.78rem; color:#8b949e; margin-top:12px; border-top:1px solid var(--card-border); padding-top:10px;">
+                General rules shown — no specific cues saved for this machine yet. A teacher can add them via ✏️ Edit.
+            </p>
         </div>
     </div>
 
@@ -643,6 +677,7 @@
                     existing.name = cm.name;     // keep naming identical class-wide
                     existing.muscle = cm.muscle; // muscle list is defined centrally
                     existing.muscles = normaliseMuscles(cm.muscles || (cm.muscle ? [cm.muscle] : []));
+                    existing.safety = cm.safety;
                     return;
                 }
                 // Restore from archive if this machine was previously removed
@@ -652,11 +687,12 @@
                     restored.name = cm.name;
                     restored.muscle = cm.muscle;
                     restored.muscles = normaliseMuscles(cm.muscles || (cm.muscle ? [cm.muscle] : []));
+                    restored.safety = cm.safety;
                     u.machines.push(restored);
                 } else {
                     u.machines.push({
                         name: cm.name, muscle: cm.muscle,
-                        muscles: normaliseMuscles(cm.muscles || (cm.muscle ? [cm.muscle] : [])),
+                        muscles: normaliseMuscles(cm.muscles || (cm.muscle ? [cm.muscle] : [])), safety: cm.safety,
                         pr: 0, prHistory: [], verifiedPr: null, verifiedDate: null
                     });
                 }
@@ -690,6 +726,123 @@
                 console.error("Machine list sync failed:", err);
                 showToast('⚠️ Machine list saved locally only — check connection.', 3000);
             }
+        }
+
+
+
+        // ---- SAFETY CUES ----
+        // Matched to machine names automatically. Teachers can override per machine (edit modal).
+        // Kept deliberately short — keywords, not paragraphs, so students actually read them.
+        const SAFETY_LIBRARY = {
+            "leg press":      { set:["Back & hips flat on seat","Feet shoulder-width, mid-platform","Knees track over toes"],
+                                rule:["NEVER lock knees straight","Lower until knees ~90°","Hands on handles, never on knees"] },
+            "chest press":    { set:["Handles level with mid-chest","Back & head against pad","Feet flat on floor"],
+                                rule:["Don't lock elbows","Control the return","Wrists straight, not bent back"] },
+            "squat":          { set:["Bar on upper back, NOT the neck","Feet shoulder-width, toes slightly out","Chest up, eyes forward"],
+                                rule:["Knees follow toe direction","Never round the lower back","Use safety bars or a spotter"] },
+            "lat pulldown":   { set:["Thigh pad snug","Grip just wider than shoulders","Chest up, slight lean back"],
+                                rule:["Pull to upper chest — NEVER behind the neck","No swinging the body","Control the bar back up"] },
+            "shoulder press": { set:["Handles at shoulder height","Back flat on pad","Core tight"],
+                                rule:["Don't lock elbows","Never arch the lower back","Stop if the shoulder pinches"] },
+            "leg extension":  { set:["Knee lined up with machine pivot","Pad on lower shin, above ankle","Hold the seat handles"],
+                                rule:["No snapping the knee straight","Slow on the way down","Go light — knee joint is exposed"] },
+            "leg curl":       { set:["Knee lined up with machine pivot","Pad just above the heels","Hips flat on the pad"],
+                                rule:["Don't lift hips off the pad","Control the return","No jerking the weight"] },
+            "row":            { set:["Chest up, shoulders back","Slight bend in the knees","Neutral (flat) spine"],
+                                rule:["Pull with the back, not just arms","Don't round the back","No big lean backwards"] },
+            "bench press":    { set:["Eyes under the bar","Feet flat, glutes on bench","Grip slightly wider than shoulders"],
+                                rule:["ALWAYS use a spotter","Bar to mid-chest, not the neck","Never bounce off the chest"] },
+            "deadlift":       { set:["Bar over mid-foot","Flat back, chest up","Shoulders just ahead of the bar"],
+                                rule:["Lift with the legs — back stays flat","Bar stays close to the body","Never round the lower back"] },
+            "bicep curl":     { set:["Elbows tucked at your sides","Stand tall, core tight","Wrists neutral"],
+                                rule:["No swinging or using the back","Control the lowering","Full range — no half reps"] },
+            "tricep":         { set:["Elbows pinned to your sides","Small forward lean","Feet shoulder-width"],
+                                rule:["Only the forearms move","Don't snap the elbows straight","Control the return"] },
+            "calf raise":     { set:["Balls of feet on platform edge","Shoulders under the pads","Stand tall"],
+                                rule:["Full stretch down, full rise up","Slow — no bouncing","Hold the rail for balance"] },
+            "crunch":         { set:["Lower back against the pad","Chest pad on upper chest","Feet secured"],
+                                rule:["Curl the spine — don't pull your neck","Breathe out as you crunch","Stop if the lower back hurts"] },
+            "fly":            { set:["Handles at chest height","Back flat on the pad","Slight bend in the elbows"],
+                                rule:["Don't over-stretch behind the body","Keep the elbow bend fixed","Control the opening"] },
+            "lateral raise":  { set:["Slight bend in the elbows","Stand tall, core tight","Palms facing down"],
+                                rule:["Raise to shoulder height ONLY","No swinging","Go light — small muscle"] },
+            "hip thrust":     { set:["Shoulder blades on the bench edge","Feet flat, shins vertical","Chin tucked"],
+                                rule:["Squeeze glutes at the top","Don't over-arch the lower back","Pad the bar"] },
+            "lunge":          { set:["Feet hip-width, take a big step","Torso upright","Front knee over the ankle"],
+                                rule:["Lower the back knee — don't slam it","Front knee stays behind the toes","Hold a support if unsteady"] },
+            "pull up":        { set:["Grip slightly wider than shoulders","Shoulders down and back","Core tight"],
+                                rule:["No kipping or swinging","Control the way down","Full hang at the bottom"] },
+            "back extension": { set:["Hip pad just below the hip bone","Feet locked in","Arms crossed on chest"],
+                                rule:["Don't bend back past straight","Slow and controlled","Stop if the lower back pinches"] },
+            "shrug":          { set:["Stand tall, arms straight","Shoulders relaxed to start","Neck neutral"],
+                                rule:["Lift shoulders straight up — no rolling","Don't pull with the arms","Keep the neck still"] },
+            "dip":            { set:["Shoulders down, slight forward lean","Elbows point backwards","Core tight"],
+                                rule:["Don't drop below 90° at the elbow","No bouncing at the bottom","Stop if the shoulder pinches"] },
+            "plank":          { set:["Elbows under shoulders","Body in one straight line","Eyes down"],
+                                rule:["Don't let the hips sag","Don't lift the hips up high","Breathe — never hold your breath"] }
+        };
+
+        const SAFETY_DEFAULT = {
+            set:["Adjust the seat and pads to your body","Back supported, core tight","Use a full but comfortable range"],
+            rule:["Warm up before your working sets","Control the weight both ways","Never hold your breath","Ask the teacher if unsure"]
+        };
+
+        // Custom cues (set by the teacher) win; otherwise match the name against the library.
+        function getSafety(machine) {
+            if (machine && machine.safety && (machine.safety.set || []).length) return machine.safety;
+            const name = (machine && machine.name ? machine.name : '').toLowerCase();
+            let best = null, bestLen = 0;
+            Object.keys(SAFETY_LIBRARY).forEach(key => {
+                if (name.includes(key) && key.length > bestLen) { best = SAFETY_LIBRARY[key]; bestLen = key.length; }
+            });
+            return best || SAFETY_DEFAULT;
+        }
+
+        function openSafety(idx) {
+            const m = store[currentUser].machines[idx];
+            const s = getSafety(m);
+            const generic = (s === SAFETY_DEFAULT);
+            document.getElementById('safetyTitle').textContent = `🛡️ ${m.name}`;
+            document.getElementById('safetySetup').innerHTML =
+                s.set.map(t => `<li>${t}</li>`).join('');
+            document.getElementById('safetyRules').innerHTML =
+                s.rule.map(t => `<li>${t}</li>`).join('');
+            document.getElementById('safetyNote').style.display = generic ? 'block' : 'none';
+            document.getElementById('safetyModal').classList.add('active');
+        }
+        function closeSafety() { document.getElementById('safetyModal').classList.remove('active'); }
+
+
+        function setMachineSection(hidden) {
+            document.getElementById('machineSectionBody').style.display = hidden ? 'none' : 'block';
+            document.getElementById('machineSummary').style.display = hidden ? 'block' : 'none';
+            document.getElementById('machineToggleArrow').textContent = hidden ? '▶' : '▼';
+            document.getElementById('machineToggleLabel').textContent = hidden ? 'Show' : 'Hide';
+            localStorage.setItem('igcse_machines_hidden', hidden ? '1' : '0');
+            if (hidden) renderMachineSummary();
+        }
+
+        function toggleMachineSection() {
+            const hidden = document.getElementById('machineSectionBody').style.display === 'none';
+            setMachineSection(!hidden);
+        }
+
+        function renderMachineSummary() {
+            const ms = store[currentUser] ? (store[currentUser].machines || []) : [];
+            const pending = ms.filter(m => m.verifiedPr == null || m.pr !== m.verifiedPr).length;
+            const el = document.getElementById('machineSummary');
+            el.innerHTML = pending > 0
+                ? `⚡ <b style="color:var(--accent-orange);">${pending} of ${ms.length} machines still need a verified PR</b> — tap to open.`
+                : `✅ ${ms.length} machines, all PRs verified — tap to open.`;
+        }
+
+        // Collapsed by default once every PR is verified; otherwise open so setup is visible.
+        function applyMachineSectionDefault() {
+            const stored = localStorage.getItem('igcse_machines_hidden');
+            if (stored !== null) { setMachineSection(stored === '1'); return; }
+            const ms = store[currentUser] ? (store[currentUser].machines || []) : [];
+            const allDone = ms.length > 0 && ms.every(m => m.verifiedPr != null && m.pr === m.verifiedPr);
+            setMachineSection(allDone);
         }
 
 
@@ -944,7 +1097,7 @@
                                 <strong>${m.name}</strong> <span style="font-size:0.85rem; color:#8b949e;">${musclesLabel(m) ? '— ' + musclesLabel(m) : ''}</span>
                             </div>
                             <div style="display:flex; gap:6px; align-items:center;">
-                                <button class="btn-epley" onclick="openEpleyModal(${idx})">🧮 Epley Table</button>
+                                <button class="btn btn-sm" style="width:auto; background:transparent; border:1px solid var(--danger); color:var(--danger);" onclick="openSafety(${idx})">🛡️ Safety</button><button class="btn-epley" onclick="openEpleyModal(${idx})">🧮 Epley Table</button>
                                 <button class="btn btn-sm" style="width:auto; background:transparent; border:1px solid var(--card-border); color:var(--text-main);" onclick="editMachine(${idx})" title="Teacher code required">✏️ Edit</button>
                                 <button class="btn-danger" onclick="deleteMachine(${idx})" title="Teacher code required">Delete</button>
                             </div>
@@ -959,6 +1112,7 @@
             });
             renderSessionBuilder();
             renderLeaderboard();
+            if (document.getElementById('machineSectionBody').style.display === 'none') renderMachineSummary();
         }
 
 
@@ -1098,6 +1252,9 @@
                 const sel = document.getElementById(id);
                 sel.value = MUSCLE_GROUPS.includes(current[i]) ? current[i] : '';
             });
+            const cur = shared.safety || {};
+            document.getElementById('editSafetySet').value = (cur.set || []).join('\n');
+            document.getElementById('editSafetyRule').value = (cur.rule || []).join('\n');
             document.getElementById('editMachineModal').classList.add('active');
         }
 
@@ -1125,6 +1282,11 @@
             shared.name = cleanName;
             shared.muscles = muscles;
             shared.muscle = muscles.join(', ');
+
+            const toLines = id => document.getElementById(id).value.split('\n').map(t => t.trim()).filter(Boolean);
+            const sSet = toLines('editSafetySet'), sRule = toLines('editSafetyRule');
+            if (sSet.length || sRule.length) shared.safety = { set: sSet, rule: sRule };
+            else delete shared.safety;
 
             // Carry every student's PR across the rename so no data is orphaned
             Object.keys(store).forEach(n => {
@@ -1247,7 +1409,9 @@
                     workoutContainer.innerHTML += `
                         <div class="machine-row">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
-                                <strong style="font-size:1.1rem; color:#fff;">${m.name}</strong>
+                                <strong style="font-size:1.1rem; color:#fff;">${m.name}
+                                    <button class="btn btn-sm" style="width:auto; padding:2px 8px; font-size:0.75rem; background:transparent; border:1px solid var(--danger); color:var(--danger); margin-left:6px;" onclick="openSafety(${mIdx})">🛡️ Safety</button>
+                                </strong>
                                 <span style="color:var(--accent-blue); font-weight:bold;">Target Weight: ${workWeight} kg</span>
                             </div>
                             <p style="font-size:0.75rem; color:#8b949e; margin-top:4px;">Enter reps completed per set (target: ${goal.reps}). Going over the target on most sets means the weight is too light — retest your PR.</p>
@@ -1726,6 +1890,7 @@
             renderHistory();
             renderRestNudge();
             renderLeaderboard();
+            applyMachineSectionDefault();
         }
         
         bootApp();
