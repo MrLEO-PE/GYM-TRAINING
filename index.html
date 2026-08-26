@@ -1851,12 +1851,12 @@
             return p.length === 3 ? `${p[2]}/${p[1]}` : iso;
         }
 
-        // "60/10/4" = weight / reps / sets. Reps shown as a range when sets differed.
+        // "60/10/4" = weight / reps / sets. When sets differed, each set's actual reps is listed.
         function wrsCell(md) {
             const done = (md.sets || []).filter(r => r > 0);
             if (!done.length) return '';
-            const mn = Math.min(...done), mx = Math.max(...done);
-            return `${md.weight}/${mn === mx ? mn : mn + '-' + mx}/${done.length}`;
+            const uniform = done.every(r => r === done[0]);
+            return `${md.weight}/${uniform ? done[0] : done.join(',')}/${done.length}`;
         }
 
         // Pulls the last 8 sessions (oldest first) and the exercises used in them.
