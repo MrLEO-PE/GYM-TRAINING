@@ -369,6 +369,13 @@
         <p style="font-size: 0.85rem; color: #8b949e; margin-top: 4px;">Pick <b>up to 8 distinct machines</b> for today's session.</p>
         <div id="restNudge"></div>
         <div class="slot-picker-container" id="slotPickerContainer"></div>
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+            <span style="font-size:0.85rem; color:#8b949e;">Sets per exercise today:</span>
+            <div class="grid-3" id="setsCountTabs" style="grid-template-columns:repeat(2, auto); gap:6px; margin:0;">
+                <div class="mode-card" data-sets="3" onclick="setSetsCount(3)" style="padding:5px 14px;"><small>3 sets</small></div>
+                <div class="mode-card" data-sets="4" onclick="setSetsCount(4)" style="padding:5px 14px;"><small>4 sets</small></div>
+            </div>
+        </div>
         <p id="targetSubheading" style="margin-bottom:15px; font-weight: 500;"></p>
         <div id="workoutLog"></div>
         <div class="slot-item" style="max-width:280px; margin-top:15px;">
@@ -560,6 +567,7 @@
 
 
         let currentGoal = 'volume';
+        let setsPerExercise = parseInt(localStorage.getItem('igcse_sets_count')) || 4;  // 3 or 4
         let store = JSON.parse(localStorage.getItem('igcse_app_store')) || {};
         let currentUser = localStorage.getItem('igcse_active_user') || 'Student 1';
         let activeSlots = [0, 1, 2, "", "", "", "", ""];
@@ -1433,7 +1441,7 @@
             const goal = GOALS[currentGoal];
 
 
-            targetSubheading.innerHTML = `Target: <b>${goal.reps} Reps × 4 Sets</b> | Working Weight: <b>${goal.pct * 100}% of 1RM</b> | Rest: <b>${goal.rest}</b>`;
+            targetSubheading.innerHTML = `Target: <b>${goal.reps} Reps × ${setsPerExercise} Sets</b> | Working Weight: <b>${goal.pct * 100}% of 1RM</b> | Rest: <b>${goal.rest}</b>`;
             slotContainer.innerHTML = '';
             
             for (let i = 0; i < 8; i++) {
@@ -1465,10 +1473,9 @@
                             <p style="font-size:0.75rem; color:#8b949e; margin-top:4px;">Enter reps completed per set (target: ${goal.reps}). Going over the target on most sets means the weight is too light — retest your PR.</p>
                             <button class="btn btn-green btn-sm" style="margin-top:8px; width:auto;" onclick="toggleHitTarget(${slotIdx}, ${goal.reps})">✓ Hit all ${goal.reps}</button>
                             <div class="set-inputs">
-                                <input type="number" placeholder="Set 1" id="slot_${slotIdx}_s1" min="0" oninput="checkRepOvershoot(this, ${goal.reps})">
-                                <input type="number" placeholder="Set 2" id="slot_${slotIdx}_s2" min="0" oninput="checkRepOvershoot(this, ${goal.reps})">
-                                <input type="number" placeholder="Set 3" id="slot_${slotIdx}_s3" min="0" oninput="checkRepOvershoot(this, ${goal.reps})">
-                                <input type="number" placeholder="Set 4" id="slot_${slotIdx}_s4" min="0" oninput="checkRepOvershoot(this, ${goal.reps})">
+                                ${Array.from({length: setsPerExercise}, (_, i) =>
+                                    `<input type="number" placeholder="Set ${i+1}" id="slot_${slotIdx}_s${i+1}" min="0" oninput="checkRepOvershoot(this, ${goal.reps})">`
+                                ).join('')}
                             </div>
                         </div>`;
                 }
@@ -1478,6 +1485,8 @@
             if (activeCount === 0) {
                 workoutContainer.innerHTML = `<p style="color:#8b949e; text-align:center; padding:20px; border:1px dashed var(--card-border); border-radius:6px;">Select at least 1 machine in the slots above to display your session log.</p>`;
             }
+            const tab = document.querySelector(`#setsCountTabs [data-sets="${setsPerExercise}"]`);
+            if (tab) { document.querySelectorAll('#setsCountTabs .mode-card').forEach(c => c.classList.remove('active')); tab.classList.add('active'); }
             renderPersonalBestBanner();
         }
 
@@ -1506,8 +1515,19 @@
         }
 
 
+        function setSetsCount(n) {
+            setsPerExercise = n;
+            localStorage.setItem('igcse_sets_count', String(n));
+            document.querySelectorAll('#setsCountTabs .mode-card').forEach(c => c.classList.remove('active'));
+            const tab = document.querySelector(`#setsCountTabs [data-sets="${n}"]`);
+            if (tab) tab.classList.add('active');
+            renderSessionBuilder();
+        }
+
+
         function toggleHitTarget(slotIdx, targetReps) {
-            const inputs = ['s1', 's2', 's3', 's4'].map(s => document.getElementById(`slot_${slotIdx}_${s}`));
+            const inputs = Array.from({length: setsPerExercise}, (_, i) =>
+                document.getElementById(`slot_${slotIdx}_s${i+1}`)).filter(Boolean);
             const alreadyAllTarget = inputs.every(el => parseInt(el.value) === targetReps);
 
             inputs.forEach(el => {
@@ -1518,15 +1538,26 @@
 
 
         function checkRepOvershoot(inputEl, targetReps) {
-            const val = parseInt(inputEl.value) || 0;
-            if (val > targetReps) {
-                inputEl.style.borderColor = 'var(--danger)';
-                inputEl.style.background = 'rgba(248, 81, 73, 0.1)';
-                inputEl.title = `Above the ${targetReps}-rep target — this set won't count as achieved. Consider retesting your PR.`;
-            } else {
+            const raw = inputEl.value.trim();
+            const val = parseInt(raw);
+            if (raw === '' || isNaN(val)) {            // not filled in yet — no flag
                 inputEl.style.borderColor = '';
                 inputEl.style.background = '';
                 inputEl.title = '';
+                return;
+            }
+            if (val > targetReps) {
+                inputEl.style.borderColor = 'var(--danger)';
+                inputEl.style.background = 'rgba(248, 81, 73, 0.1)';
+                inputEl.title = `Above the ${targetReps}-rep target — this set won't count as achieved. Your weight is likely too light, so retest your PR.`;
+            } else if (val < targetReps) {
+                inputEl.style.borderColor = 'var(--danger)';
+                inputEl.style.background = 'rgba(248, 81, 73, 0.1)';
+                inputEl.title = `Below the ${targetReps}-rep target — it still counts, but your score for this set will be lower.`;
+            } else {
+                inputEl.style.borderColor = 'var(--accent-green)';
+                inputEl.style.background = 'rgba(63, 185, 80, 0.08)';
+                inputEl.title = `Target hit — ${targetReps} reps.`;
             }
         }
 
@@ -1544,7 +1575,7 @@
             }
 
 
-            let totalTargetReps = validSlots.length * 4 * targetRepsPerSet;
+            let totalTargetReps = validSlots.length * setsPerExercise * targetRepsPerSet;
             let totalAchievedReps = 0;
             let machineDetails = [];
             let overshootMachines = [];
@@ -1553,11 +1584,10 @@
             activeSlots.forEach((mIdx, slotIdx) => {
                 if (mIdx !== "" && userMachines[mIdx]) {
                     const m = userMachines[mIdx];
-                    const s1 = parseInt(document.getElementById(`slot_${slotIdx}_s1`).value) || 0;
-                    const s2 = parseInt(document.getElementById(`slot_${slotIdx}_s2`).value) || 0;
-                    const s3 = parseInt(document.getElementById(`slot_${slotIdx}_s3`).value) || 0;
-                    const s4 = parseInt(document.getElementById(`slot_${slotIdx}_s4`).value) || 0;
-                    const rawSets = [s1, s2, s3, s4];
+                    const rawSets = Array.from({length: setsPerExercise}, (_, i) => {
+                        const el = document.getElementById(`slot_${slotIdx}_s${i+1}`);
+                        return el ? (parseInt(el.value) || 0) : 0;
+                    });
 
                     // A set only counts if it's at or below the target. Going OVER the target
                     // means the working weight was too light for a true 1RM-based zone —
@@ -1566,7 +1596,7 @@
                     const creditedSets = rawSets.map(r => r > targetRepsPerSet ? 0 : r);
                     const setsOvershot = rawSets.filter(r => r > targetRepsPerSet).length;
 
-                    if (setsOvershot >= 3) { // overshoot on most/all sets = the PR is very likely stale
+                    if (setsOvershot >= Math.max(2, setsPerExercise - 1)) { // overshoot on most/all sets = the PR is very likely stale
                         overshootMachines.push({ idx: mIdx, name: m.name });
                     }
 
@@ -1604,6 +1634,7 @@
                 goalName: goal.name,
                 goalKey: currentGoal,
                 targetReps: targetRepsPerSet,
+                setsPlanned: setsPerExercise,
                 successRate: successRate,
                 machines: machineDetails,
                 rpe: rpe ? parseInt(rpe) : null
