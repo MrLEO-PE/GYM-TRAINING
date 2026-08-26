@@ -1092,15 +1092,14 @@
                 const showVerifyBtn = !isVerified && m.pr > 0;
                 container.innerHTML += `
                     <div class="machine-row" style="margin-bottom:8px; padding:10px; ${neverVerified ? 'border-color:var(--accent-blue);' : ''}">
-                        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
-                            <div>
-                                <strong>${m.name}</strong> <span style="font-size:0.85rem; color:#8b949e;">${musclesLabel(m) ? '— ' + musclesLabel(m) : ''}</span>
-                            </div>
-                            <div style="display:flex; gap:6px; align-items:center;">
-                                <button class="btn btn-sm" style="width:auto; background:transparent; border:1px solid var(--danger); color:var(--danger);" onclick="openSafety(${idx})">🛡️ Safety</button><button class="btn-epley" onclick="openEpleyModal(${idx})">🧮 Epley Table</button>
-                                <button class="btn btn-sm" style="width:auto; background:transparent; border:1px solid var(--card-border); color:var(--text-main);" onclick="editMachine(${idx})" title="Teacher code required">✏️ Edit</button>
-                                <button class="btn-danger" onclick="deleteMachine(${idx})" title="Teacher code required">Delete</button>
-                            </div>
+                        <div style="margin-bottom:8px;">
+                            <strong>${m.name}</strong> <span style="font-size:0.85rem; color:#8b949e;">${musclesLabel(m) ? '— ' + musclesLabel(m) : ''}</span>
+                        </div>
+                        <div style="display:flex; flex-wrap:nowrap; overflow-x:auto; gap:6px; padding-bottom:2px; -webkit-overflow-scrolling:touch;">
+                            <button class="btn btn-sm" style="flex:0 0 auto; width:auto; padding:6px 10px; font-size:0.82rem; background:transparent; border:1px solid var(--danger); color:var(--danger); white-space:nowrap;" onclick="openSafety(${idx})">🛡️ Safety</button>
+                            <button class="btn-epley" style="flex:0 0 auto; width:auto; padding:6px 10px; font-size:0.82rem; white-space:nowrap;" onclick="openEpleyModal(${idx})">🧮 Epley</button>
+                            <button class="btn btn-sm" style="flex:0 0 auto; width:auto; padding:6px 10px; font-size:0.82rem; background:transparent; border:1px solid var(--card-border); color:var(--text-main); white-space:nowrap;" onclick="editMachine(${idx})" title="Teacher code required">✏️ Edit</button>
+                            <button class="btn-danger" style="flex:0 0 auto; width:auto; padding:6px 10px; font-size:0.82rem; white-space:nowrap;" onclick="deleteMachine(${idx})" title="Teacher code required">🗑️ Delete</button>
                         </div>
                         <div class="input-group">
                             <label style="align-self:center;">Current 1RM (kg):</label>
