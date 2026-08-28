@@ -342,20 +342,20 @@
         <h2>2. Today's Lesson Focus (50 Min)</h2>
         <div class="grid-3">
             <div class="mode-card" id="mode-endurance" onclick="setGoal('endurance')">
-                <h3>Endurance</h3>
-                <p><b>50% 1RM</b></p>
-                <p>15 reps / 4 sets</p>
-                <small>Rest: 30–60s</small>
+                <h3>Muscular Endurance</h3>
+                <p><b>60% 1RM</b></p>
+                <p>20 reps / 3 sets</p>
+                <small>Rest: 30–45s</small>
             </div>
-            <div class="mode-card active" id="mode-volume" onclick="setGoal('volume')">
-                <h3>Volume</h3>
-                <p><b>65% 1RM</b></p>
+            <div class="mode-card active" id="mode-hypertrophy" onclick="setGoal('hypertrophy')">
+                <h3>Hypertrophy</h3>
+                <p><b>75% 1RM</b></p>
                 <p>10 reps / 4 sets</p>
                 <small>Rest: 60–90s</small>
             </div>
             <div class="mode-card" id="mode-strength" onclick="setGoal('strength')">
-                <h3>Strength</h3>
-                <p><b>80% 1RM</b></p>
+                <h3>Muscular Strength</h3>
+                <p><b>85% 1RM</b></p>
                 <p>5 reps / 4 sets</p>
                 <small>Rest: 3–5 min</small>
             </div>
@@ -559,15 +559,20 @@
 
         let classMachines = []; // [{ name, muscle }] — shared across every student
 
+        // Percentages are the Epley formula inverted (W/1RM = 30 / (30 + reps)),
+        // so the working weight genuinely matches the rep target for each zone.
         const GOALS = {
-            endurance: { name: "Muscle Endurance (Tonicity)", pct: 0.50, reps: 15, rest: "30-60s" },
-            volume: { name: "Muscle Volume (Hypertrophy)", pct: 0.65, reps: 10, rest: "60-90s" },
-            strength: { name: "Muscle Strength (Force)", pct: 0.80, reps: 5, rest: "3-5 min" }
+            endurance:   { name: "Muscular Endurance", pct: 0.60, pctLabel: "60", reps: 20, sets: 3, rest: "30-45s" },
+            hypertrophy: { name: "Hypertrophy (Muscle Growth)", pct: 0.75, pctLabel: "75", reps: 10, sets: 4, rest: "60-90s" },
+            strength:    { name: "Muscular Strength", pct: 0.85, pctLabel: "85", reps: 5, sets: 4, rest: "3-5 min" }
         };
 
+        // Sessions saved before the rename used goalKey 'volume'.
+        function normaliseGoalKey(k) { return k === 'volume' ? 'hypertrophy' : k; }
 
-        let currentGoal = 'volume';
-        let setsPerExercise = parseInt(localStorage.getItem('igcse_sets_count')) || 4;  // 3 or 4
+
+        let currentGoal = 'hypertrophy';
+        let setsPerExercise = GOALS[currentGoal].sets;  // zone default; student can override to 3 or 4
         let store = JSON.parse(localStorage.getItem('igcse_app_store')) || {};
         let currentUser = localStorage.getItem('igcse_active_user') || 'Student 1';
         let activeSlots = [0, 1, 2, "", "", "", "", ""];
@@ -1419,9 +1424,12 @@
 
 
         function setGoal(goalKey) {
-            currentGoal = goalKey;
-            document.querySelectorAll('.mode-card').forEach(c => c.classList.remove('active'));
-            document.getElementById(`mode-${goalKey}`).classList.add('active');
+            currentGoal = normaliseGoalKey(goalKey);
+            document.querySelectorAll('.grid-3 > .mode-card[id^="mode-"]').forEach(c => c.classList.remove('active'));
+            const card = document.getElementById(`mode-${currentGoal}`);
+            if (card) card.classList.add('active');
+            setsPerExercise = GOALS[currentGoal].sets;   // each zone has its own standard set count
+            localStorage.setItem('igcse_sets_count', String(setsPerExercise));
             renderSessionBuilder();
             renderRestNudge();
         }
@@ -1441,7 +1449,7 @@
             const goal = GOALS[currentGoal];
 
 
-            targetSubheading.innerHTML = `Target: <b>${goal.reps} Reps × ${setsPerExercise} Sets</b> | Working Weight: <b>${goal.pct * 100}% of 1RM</b> | Rest: <b>${goal.rest}</b>`;
+            targetSubheading.innerHTML = `Target: <b>${goal.reps} Reps × ${setsPerExercise} Sets</b> | Working Weight: <b>${goal.pctLabel}% of 1RM</b> | Rest: <b>${goal.rest}</b>`;
             slotContainer.innerHTML = '';
             
             for (let i = 0; i < 8; i++) {
@@ -1492,7 +1500,7 @@
 
 
         function getPersonalBest(goalKey) {
-            const hist = (store[currentUser].history || []).filter(h => h.goalKey === goalKey);
+            const hist = (store[currentUser].history || []).filter(h => normaliseGoalKey(h.goalKey) === normaliseGoalKey(goalKey));
             if (hist.length === 0) return null;
             return hist.reduce((a, b) => (b.successRate > a.successRate ? b : a), hist[0]).successRate;
         }
@@ -1730,7 +1738,7 @@
                 </div>`;
             } else {
                 const daysSince = Math.round((new Date(todayStr) - new Date(lastDate)) / 86400000);
-                if (daysSince === 1 && last.goalKey === currentGoal) {
+                if (daysSince === 1 && normaliseGoalKey(last.goalKey) === currentGoal) {
                     container.innerHTML = `<div style="background:rgba(210,153,34,0.15); border:1px solid var(--accent-orange); color:var(--accent-orange); padding:10px 12px; border-radius:6px; margin-bottom:12px; font-size:0.85rem;">
                         💡 You did <b>${last.goalName}</b> yesterday too. Muscles grow during rest — consider switching focus today or targeting a different muscle group.
                     </div>`;
