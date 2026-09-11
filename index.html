@@ -468,11 +468,7 @@
                 </label>
                 <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
                     <input type="number" id="customWeight" placeholder="Weight (kg)" min="5" max="300" style="flex: 1;" oninput="updateCustomEpley()">
-                    <select id="customReps" style="flex: 1;" onchange="updateCustomEpley()">
-                        <option value="3">3 Reps</option>
-                        <option value="4">4 Reps</option>
-                        <option value="5" selected>5 Reps</option>
-                    </select>
+                    <input type="number" id="customReps" placeholder="Reps done" min="1" max="30" value="5" style="flex: 1;" oninput="updateCustomEpley()">
                     <button class="btn btn-green btn-sm" style="height: 40px;" onclick="applyCustomEpley()">Apply Rounded PR</button>
                 </div>
                 <div id="customCalcResult" style="margin-top: 8px; font-weight: bold; color: var(--accent-green); font-size: 0.9rem;"></div>
@@ -1195,20 +1191,42 @@
 
         function updateCustomEpley() {
             const weight = parseFloat(document.getElementById('customWeight').value) || 0;
-            const reps = parseInt(document.getElementById('customReps').value) || 3;
+            const reps = parseInt(document.getElementById('customReps').value) || 0;
             const resBox = document.getElementById('customCalcResult');
-            if (weight > 0) {
-                const exactPr = calcEpley(weight, reps);
-                const roundedPr = Math.round(exactPr);
-                resBox.innerHTML = `Exact Formula: <span style="color:#8b949e;">${exactPr.toFixed(1)} kg</span> | Applied PR: <span style="color:#fff; font-size:1.1rem;">${roundedPr} kg</span>`;
-            } else { resBox.textContent = "Enter a weight to view calculation."; }
+
+            if (weight <= 0 || reps <= 0) {
+                resBox.innerHTML = "Enter the weight and the reps you completed.";
+                return;
+            }
+
+            const exactPr = calcEpley(weight, reps);
+            const roundedPr = Math.round(exactPr);
+            let line = `Exact Formula: <span style="color:#8b949e;">${exactPr.toFixed(1)} kg</span> | Applied PR: <span style="color:#fff; font-size:1.1rem;">${roundedPr} kg</span>`;
+
+            // Epley is a straight-line approximation — it drifts high once reps get long.
+            if (reps > 12) {
+                line += `<div style="color:var(--danger); font-weight:normal; font-size:0.82rem; margin-top:6px;">
+                    ⚠️ ${reps} reps is a long set — Epley over-estimates 1RM above about 12 reps, so this number will read high.
+                    Retest with a heavier weight for 3–8 reps to get an accurate PR.</div>`;
+            } else if (reps > 10) {
+                line += `<div style="color:var(--accent-orange); font-weight:normal; font-size:0.82rem; margin-top:6px;">
+                    Note: Epley is most accurate at 3–10 reps. Slightly heavier for fewer reps gives a better PR.</div>`;
+            }
+            resBox.innerHTML = line;
         }
 
 
         function applyCustomEpley() {
             const weight = parseFloat(document.getElementById('customWeight').value) || 0;
-            const reps = parseInt(document.getElementById('customReps').value) || 3;
-            if (weight > 0 && activeEpleyMachineIdx !== null) {
+            const reps = parseInt(document.getElementById('customReps').value) || 0;
+            if (weight <= 0 || reps <= 0) {
+                alert("Enter both the weight you lifted and how many reps you completed.");
+                return;
+            }
+            if (reps > 12 && !confirm(
+                `${reps} reps is a long set. Epley over-estimates 1RM above about 12 reps, so this PR will read higher than your true max.\n\n`
+                + `Apply it anyway, or cancel and retest with a heavier weight for 3-8 reps?`)) return;
+            if (activeEpleyMachineIdx !== null) {
                 const roundedPR = Math.round(calcEpley(weight, reps));
                 setMachinePR(activeEpleyMachineIdx, roundedPR, weight, reps);
             }
