@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -814,6 +814,10 @@
                                 rule:["Lift with the legs — back stays flat","Bar stays close to the body","Never round the lower back"] },
             "bicep curl":     { set:["Elbows tucked at your sides","Stand tall, core tight","Wrists neutral"],
                                 rule:["No swinging or using the back","Control the lowering","Full range — no half reps"] },
+            "curl":           { set:["Elbows tucked at your sides","Stand tall, core tight","Wrists straight, palms up"],
+                                rule:["No swinging, the body stays still","Lower slowly, don't drop it","Full range, all the way up and down"] },
+            "hang clean":     { set:["Bar at mid-thigh, flat back, chest up","Feet hip-width, bar close to the legs","Shoulders just ahead of the bar"],
+                                rule:["Drive with the legs and hips, don't curl it up","Bar stays close to the body the whole way","Catch with elbows HIGH and knees soft","Technique first, weight last. Get it checked before loading"] },
             "curl and press": { set:["Stand tall, feet shoulder-width","Elbows tucked at your sides to start","Core tight, wrists neutral"],
                                 rule:["Curl first, THEN press — never swing into it","Don't arch the lower back when pressing","Control the dumbbells all the way down","Start light — it's two movements in one"] },
             "tricep":         { set:["Elbows pinned to your sides","Small forward lean","Feet shoulder-width"],
@@ -1018,12 +1022,12 @@
 
         async function switchUser(newUser) {
             currentUser = newUser;
-            activeSlots = [0, 1, 2, "", "", "", "", ""];
             initUserData(currentUser);
 
             showToast(`⏳ Loading ${newUser}'s data...`);
             await fetchFromCloud(currentUser);
             reconcileMachines(currentUser); // keep them on the shared class machine list
+            restoreRoutine();               // bring back the 8 exercises they last used
             hideToast();
 
             localStorage.setItem('igcse_active_user', currentUser);
@@ -1377,6 +1381,10 @@
                 (store[n].archivedMachines || []).forEach(m => {
                     if (m.name.trim().toLowerCase() === oldName.trim().toLowerCase()) m.name = shared.name;
                 });
+                if (Array.isArray(store[n].routine)) {
+                    store[n].routine = store[n].routine.map(rn =>
+                        (rn && rn.trim().toLowerCase() === oldName.trim().toLowerCase()) ? shared.name : rn);
+                }
             });
 
             await saveClassMachines();
@@ -1437,6 +1445,7 @@
             Object.keys(store).forEach(n => reconcileMachines(n));
 
             activeSlots = activeSlots.map(slotIdx => slotIdx === idx ? "" : (slotIdx > idx ? slotIdx - 1 : slotIdx));
+            saveRoutine();
             saveStore();
             renderMachines();
             showToast(`🗑️ "${machine.name}" removed for the class.`, 2500);
@@ -1455,8 +1464,33 @@
         }
 
 
+        // A student's 8 slots are saved by machine NAME, so the routine survives the
+        // class list being reordered, renamed or added to.
+        function saveRoutine() {
+            const ms = (store[currentUser] && store[currentUser].machines) || [];
+            store[currentUser].routine = activeSlots.map(i => (i !== "" && ms[i]) ? ms[i].name : "");
+            saveStore();
+        }
+
+        function restoreRoutine() {
+            const u = store[currentUser];
+            const ms = (u && u.machines) || [];
+            if (!u || !Array.isArray(u.routine)) {
+                activeSlots = [0, 1, 2, "", "", "", "", ""];   // first time: sensible default
+                return;
+            }
+            activeSlots = u.routine.map(name => {
+                if (!name) return "";
+                const i = ms.findIndex(m => m.name.trim().toLowerCase() === name.trim().toLowerCase());
+                return i === -1 ? "" : i;   // machine deleted from the class list
+            });
+            while (activeSlots.length < 8) activeSlots.push("");
+        }
+
+
         function updateSlotSelection(slotNum, selectedVal) {
             activeSlots[slotNum] = selectedVal !== "" ? parseInt(selectedVal) : "";
+            saveRoutine();
             renderSessionBuilder();
         }
 
@@ -2170,6 +2204,7 @@
             await migrateLegacyMachinesIfNeeded();
             Object.keys(store).forEach(n => reconcileMachines(n));
             initUserData(currentUser);
+            restoreRoutine();               // bring back the 8 exercises they last used
             saveStore();
 
             renderUserSelector();
