@@ -114,10 +114,18 @@
             padding: 8px 12px;
             border-radius: 6px;
             display: flex;
-            flex-wrap: wrap;   /* without this the buttons run off the side of a phone */
+            /* One row on every device. Narrow screens scroll the strip rather than
+               dropping the last button onto a line of its own. */
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: thin;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
         }
+        .profile-box > * { flex: 0 0 auto; }
+        /* Capped so a long student name cannot push the last button off the row */
+        .profile-box select { max-width: 140px; }
 
 
         .cloud-badge {
@@ -234,7 +242,7 @@
         @media (max-width: 600px) {
             body { padding: 10px; }
             .header { flex-direction: column; align-items: flex-start; gap: 12px; }
-            .profile-box { width: 100%; justify-content: space-between; }
+            .profile-box { width: 100%; }
             .grid-3 { grid-template-columns: 1fr; }
             .slot-picker-container { grid-template-columns: 1fr; }
             .set-inputs { grid-template-columns: repeat(2, 1fr); gap: 8px; }
@@ -273,10 +281,10 @@
             <div>
                 <select id="userSelect" onchange="switchUser(this.value)"></select>
             </div>
-            <button class="btn btn-sm" id="addStudentBtn" onclick="promptNewUser()">+ Add Student</button>
-            <button class="btn btn-sm" style="background:transparent;border:1px solid var(--card-border);color:var(--text-main);" onclick="refreshUserList()" title="Pull in students created on other devices">🔄 Refresh List</button>
-            <button class="btn-danger btn-sm" onclick="deleteUser(currentUser)" title="Permanently delete the current student">🗑️ Delete Student</button>
-            <button class="btn btn-sm" style="background:var(--btn-gold); color:var(--on-accent);" onclick="openClassOverview()">👥 Class Overview</button>
+            <button class="btn btn-sm" id="addStudentBtn" onclick="promptNewUser()" title="Add a new student">+ Add</button>
+            <button class="btn btn-sm" style="background:transparent;border:1px solid var(--card-border);color:var(--text-main);" onclick="refreshUserList()" title="Pull in students created on other devices">🔄 Refresh</button>
+            <button class="btn-danger btn-sm" onclick="deleteUser(currentUser)" title="Permanently delete the current student">🗑️ Delete</button>
+            <button class="btn btn-sm" style="background:var(--btn-gold); color:var(--on-accent);" onclick="openClassOverview()" title="See the whole class">👥 Class</button>
             <button class="btn btn-sm" style="background:var(--btn-bright-green); color:var(--on-accent);" onclick="openIgcseLog()">📄 IGCSE Log</button>
         </div>
     </div>
