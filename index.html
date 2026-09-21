@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -1134,6 +1134,45 @@
         function calcEpley(weight, reps) { return weight * (1 + reps / 30); }
 
 
+        // ---- PER-EXERCISE LEVELLING ----
+        // A student can add kg and/or raise the rep target on one machine without touching its
+        // listed 1RM. Both stick to the machine, so the level carries from lesson to lesson.
+        const LEVEL_STEP_KG = 2.5;
+        const REP_TARGET_CHOICES = [12, 15, 20, 25, 30];
+
+        function exerciseReps(m) { return m.repTarget || GOALS[currentGoal].reps; }
+        function exerciseWeight(m) { return roundToWorkingWeight(m.pr * GOALS[currentGoal].pct) + (m.levelKg || 0); }
+        function isLevelled(m) { return (m.levelKg || 0) > 0 || !!m.repTarget; }
+        // What the levelled load is already worth as a 1RM — the target to aim for at the retest.
+        function projectedOneRm(m) { return Math.round(calcEpley(exerciseWeight(m), exerciseReps(m))); }
+
+        // Levelling up rebuilds the whole log, so carry any reps already typed across the redraw.
+        function rerenderKeepingReps() {
+            const typed = {};
+            document.querySelectorAll('#workoutLog input[type=number]').forEach(el => {
+                if (el.value !== '') typed[el.id] = el.value;
+            });
+            renderSessionBuilder();
+            Object.entries(typed).forEach(([id, v]) => {
+                const el = document.getElementById(id);
+                if (el) { el.value = v; el.dispatchEvent(new Event('input')); }
+            });
+        }
+
+        function adjustLevelKg(mIdx, delta) {
+            const m = store[currentUser].machines[mIdx];
+            m.levelKg = Math.max(0, Math.round(((m.levelKg || 0) + delta) * 2) / 2);
+            saveStore();
+            rerenderKeepingReps();
+        }
+
+        function setRepTarget(mIdx, value) {
+            store[currentUser].machines[mIdx].repTarget = value ? parseInt(value) : null;
+            saveStore();
+            rerenderKeepingReps();
+        }
+
+
         function renderMachines() {
             const container = document.getElementById('machineList');
             container.innerHTML = '';
@@ -1504,7 +1543,7 @@
             const goal = GOALS[currentGoal];
 
 
-            targetSubheading.innerHTML = `Target: <b>${goal.reps} Reps × ${setsPerExercise} Sets</b> | Working Weight: <b>${goal.pctLabel}% of 1RM</b> | Rest: <b>${goal.rest}</b>`;
+            targetSubheading.innerHTML = `Zone default: <b>${goal.reps} Reps × ${setsPerExercise} Sets</b> | Working Weight: <b>${goal.pctLabel}% of 1RM</b> | Rest: <b>${goal.rest}</b>`;
             slotContainer.innerHTML = '';
             
             for (let i = 0; i < 8; i++) {
@@ -1524,20 +1563,33 @@
                 if (mIdx !== "" && userMachines[mIdx]) {
                     activeCount++;
                     const m = userMachines[mIdx];
-                    const workWeight = roundToWorkingWeight(m.pr * goal.pct);
+                    const reps = exerciseReps(m);
+                    const workWeight = exerciseWeight(m);
+                    const lvl = m.levelKg || 0;
                     workoutContainer.innerHTML += `
                         <div class="machine-row">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
                                 <strong style="font-size:1.1rem; color:#fff;">${m.name}
                                     <button class="btn btn-sm" style="width:auto; padding:2px 8px; font-size:0.75rem; background:transparent; border:1px solid var(--danger); color:var(--danger); margin-left:6px;" onclick="openSafety(${mIdx})">🛡️ Safety</button>
                                 </strong>
-                                <span style="color:var(--accent-blue); font-weight:bold;">Target Weight: ${workWeight} kg</span>
+                                <span style="color:var(--accent-blue); font-weight:bold;">Target Weight: ${workWeight} kg${lvl > 0 ? ` <span style="color:var(--accent-green);">(+${lvl})</span>` : ''}</span>
                             </div>
-                            <p style="font-size:0.75rem; color:#8b949e; margin-top:4px;">Enter reps completed per set (target: ${goal.reps}). Going over the target on most sets means the weight is too light — retest your PR.</p>
-                            <button class="btn btn-green btn-sm" style="margin-top:8px; width:auto;" onclick="toggleHitTarget(${slotIdx}, ${goal.reps})">✓ Hit all ${goal.reps}</button>
+                            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:8px; padding:8px; background:rgba(88,166,255,0.06); border:1px solid var(--card-border); border-radius:6px;">
+                                <span style="font-size:0.78rem; color:#8b949e;">⬆️ Level up:</span>
+                                <button class="btn btn-sm" style="width:auto; padding:2px 10px; font-size:0.75rem;" onclick="adjustLevelKg(${mIdx}, -${LEVEL_STEP_KG})">−${LEVEL_STEP_KG} kg</button>
+                                <button class="btn btn-sm" style="width:auto; padding:2px 10px; font-size:0.75rem;" onclick="adjustLevelKg(${mIdx}, ${LEVEL_STEP_KG})">+${LEVEL_STEP_KG} kg</button>
+                                <span style="font-size:0.78rem; color:#8b949e; margin-left:6px;">Reps:</span>
+                                <select onchange="setRepTarget(${mIdx}, this.value)" style="flex:0 0 auto; width:auto; min-width:0; padding:3px 6px; font-size:0.78rem;">
+                                    <option value="">Zone (${goal.reps})</option>
+                                    ${REP_TARGET_CHOICES.map(r => `<option value="${r}" ${m.repTarget === r ? 'selected' : ''}>${r} reps</option>`).join('')}
+                                </select>
+                            </div>
+                            ${isLevelled(m) && m.pr > 0 ? `<p style="font-size:0.75rem; color:var(--accent-green); margin-top:6px;">📈 Hold ${reps} reps at ${workWeight} kg and you are on track for a <b>${projectedOneRm(m)} kg</b> 1RM by your final session. Your listed 1RM stays ${m.pr} kg until you retest it.</p>` : ''}
+                            <p style="font-size:0.75rem; color:#8b949e; margin-top:4px;">Enter reps completed per set (target: ${reps}). Going over the target on most sets means the weight is too light — retest your PR.</p>
+                            <button class="btn btn-green btn-sm" style="margin-top:8px; width:auto;" onclick="toggleHitTarget(${slotIdx}, ${reps})">✓ Hit all ${reps}</button>
                             <div class="set-inputs">
                                 ${Array.from({length: setsPerExercise}, (_, i) =>
-                                    `<input type="number" placeholder="Set ${i+1}" id="slot_${slotIdx}_s${i+1}" min="0" oninput="checkRepOvershoot(this, ${goal.reps})">`
+                                    `<input type="number" placeholder="Set ${i+1}" id="slot_${slotIdx}_s${i+1}" min="0" oninput="checkRepOvershoot(this, ${reps})">`
                                 ).join('')}
                             </div>
                         </div>`;
@@ -1628,7 +1680,6 @@
         function saveSession() {
             const userMachines = store[currentUser].machines;
             const goal = GOALS[currentGoal];
-            const targetRepsPerSet = goal.reps;
 
 
             let validSlots = activeSlots.filter(s => s !== "" && userMachines[s]);
@@ -1638,7 +1689,7 @@
             }
 
 
-            let totalTargetReps = validSlots.length * setsPerExercise * targetRepsPerSet;
+            let totalTargetReps = 0;   // summed per exercise, since levelled machines set their own target
             let totalAchievedReps = 0;
             let machineDetails = [];
             let overshootMachines = [];
@@ -1647,6 +1698,8 @@
             activeSlots.forEach((mIdx, slotIdx) => {
                 if (mIdx !== "" && userMachines[mIdx]) {
                     const m = userMachines[mIdx];
+                    const targetRepsPerSet = exerciseReps(m);
+                    totalTargetReps += setsPerExercise * targetRepsPerSet;
                     const rawSets = Array.from({length: setsPerExercise}, (_, i) => {
                         const el = document.getElementById(`slot_${slotIdx}_s${i+1}`);
                         return el ? (parseInt(el.value) || 0) : 0;
@@ -1664,7 +1717,7 @@
                     }
 
                     totalAchievedReps += creditedSets.reduce((a, b) => a + b, 0);
-                    machineDetails.push({ name: m.name, weight: roundToWorkingWeight(m.pr * goal.pct), sets: rawSets, overshotSets: setsOvershot });
+                    machineDetails.push({ name: m.name, weight: exerciseWeight(m), sets: rawSets, overshotSets: setsOvershot, targetReps: targetRepsPerSet, levelKg: m.levelKg || 0 });
                 }
             });
 
@@ -1696,7 +1749,7 @@
                 isoDate: new Date().toISOString().slice(0, 10),
                 goalName: goal.name,
                 goalKey: currentGoal,
-                targetReps: targetRepsPerSet,
+                targetReps: goal.reps,
                 setsPlanned: setsPerExercise,
                 successRate: successRate,
                 machines: machineDetails,
@@ -1723,7 +1776,7 @@
                 const names = overshootMachines.map(m => m.name).join(', ');
                 const wantsRetest = confirm(
                     `Workout saved. Session Score: ${successRate}%${bestLine}\n\n` +
-                    `⚠️ On ${overshootMachines.length > 1 ? 'these machines' : 'this machine'} you did MORE reps than the ${targetRepsPerSet}-rep target on most sets: ${names}.\n\n` +
+                    `⚠️ On ${overshootMachines.length > 1 ? 'these machines' : 'this machine'} you did MORE reps than the target on most sets: ${names}.\n\n` +
                     `That usually means your current PR is set too low, so those sets weren't scored as achieved.\n\n` +
                     `Retest your PR now on "${overshootMachines[0].name}"?`
                 );
@@ -2095,7 +2148,10 @@
                     row.cells.forEach((c, ci) => setTxt(`WRS${ci + 1}_Row${n}_1`, c));
                 });
 
+                // Flatten so the text is painted into the page. Live form fields are re-rendered
+                // by each viewer's own font engine, which is why tablets differed from the laptop.
                 form.updateFieldAppearances(await doc.embedFont(StandardFonts.Helvetica));
+                form.flatten();
                 const out = await doc.save();
 
                 const blob = new Blob([out], { type: 'application/pdf' });
@@ -2105,7 +2161,7 @@
                 document.body.appendChild(a); a.click(); a.remove();
                 setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 
-                status.textContent = '✅ Downloaded. Open it to check, then print or submit.';
+                status.textContent = '✅ Downloaded (locked layout — identical on every device). Open it to check, then print or submit.';
             } catch (err) {
                 console.error(err);
                 status.textContent = '⚠️ ' + err.message;
