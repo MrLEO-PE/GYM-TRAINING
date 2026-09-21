@@ -348,7 +348,7 @@
                 <small>Rest: 30–45s</small>
             </div>
             <div class="mode-card active" id="mode-hypertrophy" onclick="setGoal('hypertrophy')">
-                <h3>Hypertrophy</h3>
+                <h3>Muscular Size</h3>
                 <p><b>75% 1RM</b></p>
                 <p>10 reps / 3 sets</p>
                 <small>Rest: 60–90s</small>
@@ -561,12 +561,19 @@
         // so the working weight genuinely matches the rep target for each zone.
         const GOALS = {
             endurance:   { name: "Muscular Endurance", pct: 0.60, pctLabel: "60", reps: 20, repMin: 15, repMax: 30, sets: 4, rest: "30-45s" },
-            hypertrophy: { name: "Hypertrophy (Muscle Growth)", pct: 0.75, pctLabel: "75", reps: 10, repMin: 8, repMax: 12, sets: 3, rest: "60-90s" },
+            hypertrophy: { name: "Muscular Size", pct: 0.75, pctLabel: "75", reps: 10, repMin: 8, repMax: 12, sets: 3, rest: "60-90s" },
             strength:    { name: "Muscular Strength", pct: 0.85, pctLabel: "85", reps: 5, repMin: 2, repMax: 6, sets: 2, rest: "3-5 min" }
         };
 
         // Sessions saved before the rename used goalKey 'volume'.
         function normaliseGoalKey(k) { return k === 'volume' ? 'hypertrophy' : k; }
+
+        // Sessions store the zone name as it read at the time, so a renamed zone would
+        // otherwise show its old name forever in history and on the leaderboard.
+        function goalLabel(session) {
+            const g = GOALS[normaliseGoalKey(session.goalKey)];
+            return g ? g.name : session.goalName;
+        }
 
 
         let currentGoal = 'hypertrophy';
@@ -1894,7 +1901,7 @@
                             </div>
                             <button class="btn-danger" style="padding: 4px 8px; font-size: 0.8rem; background: transparent; border: 1px solid var(--danger);" title="Delete Log" onclick="deleteLogItem(${index})">🗑️</button>
                         </div>
-                        <p style="font-size:0.9rem; margin-top:8px; color:var(--accent-blue);"><b>Focus:</b> ${item.goalName}</p>
+                        <p style="font-size:0.9rem; margin-top:8px; color:var(--accent-blue);"><b>Focus:</b> ${goalLabel(item)}</p>
                         ${metaLine}
                         <div class="progress-bar">
                             <div class="progress-fill" style="width: ${item.successRate}%; ${item.successRate < 70 ? 'background:var(--danger);' : item.successRate < 90 ? 'background:var(--accent-orange);' : ''}"></div>
@@ -1916,13 +1923,13 @@
 
             if (lastDate === todayStr) {
                 container.innerHTML = `<div style="background:rgba(210,153,34,0.15); border:1px solid var(--accent-orange); color:var(--accent-orange); padding:10px 12px; border-radius:6px; margin-bottom:12px; font-size:0.85rem;">
-                    ⚠️ You already logged a <b>${last.goalName}</b> session today. Training the same muscles again without rest can limit gains — consider a different focus or resting instead.
+                    ⚠️ You already logged a <b>${goalLabel(last)}</b> session today. Training the same muscles again without rest can limit gains — consider a different focus or resting instead.
                 </div>`;
             } else {
                 const daysSince = Math.round((new Date(todayStr) - new Date(lastDate)) / 86400000);
                 if (daysSince === 1 && normaliseGoalKey(last.goalKey) === currentGoal) {
                     container.innerHTML = `<div style="background:rgba(210,153,34,0.15); border:1px solid var(--accent-orange); color:var(--accent-orange); padding:10px 12px; border-radius:6px; margin-bottom:12px; font-size:0.85rem;">
-                        💡 You did <b>${last.goalName}</b> yesterday too. Muscles grow during rest — consider switching focus today or targeting a different muscle group.
+                        💡 You did <b>${goalLabel(last)}</b> yesterday too. Muscles grow during rest — consider switching focus today or targeting a different muscle group.
                     </div>`;
                 } else {
                     container.innerHTML = '';
@@ -1981,7 +1988,7 @@
                 const hist = (store[name].history || []).filter(h => isWithinPeriod(h.isoDate, scorePeriod));
                 if (hist.length === 0) return;
                 const best = hist.reduce((a, b) => (b.successRate > a.successRate ? b : a), hist[0]);
-                entries.push({ name, successRate: best.successRate, date: best.date, goalName: best.goalName });
+                entries.push({ name, successRate: best.successRate, date: best.date, goalName: goalLabel(best) });
             });
 
             if (entries.length === 0) {
@@ -2269,7 +2276,7 @@
                 const statusBadge = trainedToday
                     ? `<span class="score-badge badge-high">✅ Trained Today</span>`
                     : `<span class="score-badge badge-low">⏳ Not Yet Today</span>`;
-                const lastLine = last ? `${last.date} — ${last.goalName}${last.rpe ? ` (RPE ${last.rpe}/5)` : ''}` : 'No sessions logged';
+                const lastLine = last ? `${last.date} — ${goalLabel(last)}${last.rpe ? ` (RPE ${last.rpe}/5)` : ''}` : 'No sessions logged';
                 return `<div class="history-item">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <strong>${name}</strong>
