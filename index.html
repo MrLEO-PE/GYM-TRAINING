@@ -164,6 +164,8 @@
         
         .input-group { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
         input, select { background: var(--surface-sunken); border: 1px solid var(--card-border); color: var(--text-heading); padding: 9px; border-radius: 4px; flex: 1; min-width: 70px; width: 100%; }
+        /* The rule above stretches every input to fill its row; a tickbox must not. */
+        input[type="checkbox"] { width: 17px; height: 17px; min-width: 0; min-height: 0; flex: 0 0 auto; padding: 0; accent-color: var(--accent-green); cursor: pointer; }
         .set-inputs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 10px; }
         
         .slot-picker-container {
@@ -1969,6 +1971,7 @@
             const rpe = document.getElementById('rpeSelect').value;
             const previousBest = getPersonalBest(currentGoal); // capture BEFORE this session is added
             const sessionData = {
+                id: newSessionId(),
                 date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
                 isoDate: new Date().toISOString().slice(0, 10),
                 goalName: goal.name,
@@ -2013,6 +2016,59 @@
         }
 
 
+        // ---- CHOOSING WHICH SESSIONS GO ON THE IGCSE SHEET ----
+        // The Cambridge form has room for exactly 8, so the student picks which 8 represent
+        // their programme. Picks are stored by session id rather than position, so deleting
+        // or adding a session cannot silently change what ends up on the sheet.
+        const IGCSE_SHEET_SESSIONS = 8;
+
+        function newSessionId() { return 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+
+        // Sessions logged before the picker existed have no id, so give them one on sight.
+        function ensureSessionIds(userName) {
+            const hist = (store[userName] || {}).history;
+            if (!Array.isArray(hist)) return false;
+            let added = false;
+            hist.forEach(s => { if (!s.id) { s.id = newSessionId(); added = true; } });
+            return added;
+        }
+
+        function igcsePicks() {
+            const u = store[currentUser] || {};
+            const live = new Set((u.history || []).map(s => s.id));
+            return (u.igcsePicks || []).filter(id => live.has(id));   // forget deleted sessions
+        }
+
+        function toggleIgcsePick(id) {
+            const picks = igcsePicks();
+            const at = picks.indexOf(id);
+            if (at !== -1) {
+                picks.splice(at, 1);
+            } else if (picks.length >= IGCSE_SHEET_SESSIONS) {
+                showToast(`The sheet holds ${IGCSE_SHEET_SESSIONS} sessions — untick one first.`);
+                renderHistory();
+                return;
+            } else {
+                picks.push(id);
+            }
+            store[currentUser].igcsePicks = picks;
+            saveStore();
+            renderHistory();
+        }
+
+        // What the export actually writes: the student's chosen sessions, oldest first.
+        // A student who has not chosen any still gets a valid sheet from their latest work.
+        function igcseSessions(userName) {
+            const u = store[userName] || {};
+            const hist = u.history || [];
+            const picked = (u.igcsePicks || []).map(id => hist.find(s => s.id === id)).filter(Boolean);
+            const chosen = picked.length ? picked : hist.slice(0, IGCSE_SHEET_SESSIONS);
+            return chosen.slice(0, IGCSE_SHEET_SESSIONS)
+                         .slice()
+                         .sort((a, b) => String(a.isoDate || '').localeCompare(String(b.isoDate || '')));
+        }
+
+
         function renderHistory() {
             const container = document.getElementById('historyList');
             const userHistory = store[currentUser].history;
@@ -2024,7 +2080,18 @@
             }
 
 
-            container.innerHTML = '';
+            const picks = igcsePicks();
+            const full = picks.length >= IGCSE_SHEET_SESSIONS;
+            const auto = picks.length === 0;
+            const tone = full ? 'var(--accent-green)' : 'var(--accent-orange)';
+            container.innerHTML = `
+                <div style="border:1px solid ${tone}; color:${tone}; background:${full ? 'rgba(63,185,80,0.12)' : 'rgba(210,153,34,0.15)'}; border-radius:6px; padding:10px 12px; margin-bottom:12px; font-size:0.85rem;">
+                    📄 <b>Your IGCSE sheet has room for ${IGCSE_SHEET_SESSIONS} sessions only.</b><br>
+                    ${auto
+                        ? `You have not chosen any yet, so your <b>${Math.min(userHistory.length, IGCSE_SHEET_SESSIONS)} most recent</b> will be used. Tick the ${IGCSE_SHEET_SESSIONS} that best show your training below.`
+                        : `You have chosen <b>${picks.length} of ${IGCSE_SHEET_SESSIONS}</b>.${full ? ' Your sheet is ready.' : ' Tick more below to fill the sheet.'}`}
+                </div>`;
+
             userHistory.forEach((item, index) => {
                 let badgeClass = 'badge-high';
                 if (item.successRate < 70) badgeClass = 'badge-low';
@@ -2035,12 +2102,17 @@
                 let metaLine = item.rpe ? `<p style="font-size:0.8rem; margin-top:4px; color:var(--accent-orange);">💪 RPE ${item.rpe}/5</p>` : '';
 
 
+                const isPicked = picks.includes(item.id);
                 container.innerHTML += `
-                    <div class="history-item">
+                    <div class="history-item" style="${isPicked ? 'border-color:var(--accent-green);' : ''}">
                         <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                             <div>
                                 <strong>📅 ${item.date}</strong>
                                 <span class="score-badge ${badgeClass}" style="margin-left: 8px;">Score: ${item.successRate}%</span>
+                                <label style="display:inline-flex; align-items:center; gap:6px; margin-left:8px; font-size:0.78rem; font-weight:600; cursor:pointer; color:${isPicked ? 'var(--accent-green)' : 'var(--text-muted)'};">
+                                    <input type="checkbox" ${isPicked ? 'checked' : ''} onchange="toggleIgcsePick('${item.id}')" title="Put this session on the IGCSE sheet">
+                                    ${isPicked ? 'On IGCSE sheet' : 'Add to sheet'}
+                                </label>
                             </div>
                             <button class="btn-danger" style="padding: 4px 8px; font-size: 0.8rem; background: transparent; border: 1px solid var(--danger);" title="Delete Log" onclick="deleteLogItem(${index})">🗑️</button>
                         </div>
@@ -2233,7 +2305,7 @@
         // Pulls the last 8 sessions (oldest first) and the exercises used in them.
         function buildIgcseData(userName) {
             const u = store[userName] || {};
-            const sessions = (u.history || []).slice(0, 8).reverse();
+            const sessions = igcseSessions(userName);
             const order = (u.machines || []).map(m => m.name);
             const used = [];
             sessions.forEach(s => (s.machines || []).forEach(md => {
@@ -2273,9 +2345,15 @@
             if (d.sessions.length === 0) {
                 el.innerHTML = `⚠️ <b>No sessions saved yet</b> — the exercise table will be empty. Log at least one workout first.`;
             } else {
+                const chosen = igcsePicks().length;
+                const total = (store[currentUser].history || []).length;
                 el.innerHTML = `✅ <b>${d.sessions.length} session${d.sessions.length > 1 ? 's' : ''}</b> and `
                     + `<b>${d.exercises.length} exercise${d.exercises.length > 1 ? 's' : ''}</b> will be written to the sheet.`
-                    + (d.sessions.length === 8 ? `<br><span style="color:var(--text-muted);">The sheet holds 8 sessions — the most recent 8 are used.</span>` : '');
+                    + `<br><span style="color:var(--text-muted);">`
+                    + (chosen
+                        ? `These are the ${chosen} session${chosen > 1 ? 's' : ''} ticked in section 5.`
+                        : `No sessions are ticked in section 5, so the most recent ${d.sessions.length} of ${total} are used. The sheet holds ${IGCSE_SHEET_SESSIONS}.`)
+                    + `</span>`;
             }
             const saved = (store[currentUser] && store[currentUser].igcse) || {};
             document.getElementById('igcseSyllabus').value = saved.syllabus || '0413/02 Physical Education';
@@ -2483,7 +2561,7 @@
             await fetchFromCloud(currentUser);
 
             await migrateLegacyMachinesIfNeeded();
-            Object.keys(store).forEach(n => reconcileMachines(n));
+            Object.keys(store).forEach(n => { reconcileMachines(n); ensureSessionIds(n); });
             initUserData(currentUser);
             restoreRoutine();               // bring back the 8 exercises they last used
             saveStore();
