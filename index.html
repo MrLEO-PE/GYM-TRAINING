@@ -344,19 +344,19 @@
             <div class="mode-card" id="mode-endurance" onclick="setGoal('endurance')">
                 <h3>Muscular Endurance</h3>
                 <p><b>60% 1RM</b></p>
-                <p>20 reps / 3 sets</p>
+                <p>20 reps / 4 sets</p>
                 <small>Rest: 30–45s</small>
             </div>
             <div class="mode-card active" id="mode-hypertrophy" onclick="setGoal('hypertrophy')">
                 <h3>Hypertrophy</h3>
                 <p><b>75% 1RM</b></p>
-                <p>10 reps / 4 sets</p>
+                <p>10 reps / 3 sets</p>
                 <small>Rest: 60–90s</small>
             </div>
             <div class="mode-card" id="mode-strength" onclick="setGoal('strength')">
                 <h3>Muscular Strength</h3>
                 <p><b>85% 1RM</b></p>
-                <p>5 reps / 4 sets</p>
+                <p>5 reps / 2 sets</p>
                 <small>Rest: 3–5 min</small>
             </div>
         </div>
@@ -559,9 +559,9 @@
         // Percentages are the Epley formula inverted (W/1RM = 30 / (30 + reps)),
         // so the working weight genuinely matches the rep target for each zone.
         const GOALS = {
-            endurance:   { name: "Muscular Endurance", pct: 0.60, pctLabel: "60", reps: 20, sets: 3, rest: "30-45s" },
-            hypertrophy: { name: "Hypertrophy (Muscle Growth)", pct: 0.75, pctLabel: "75", reps: 10, sets: 4, rest: "60-90s" },
-            strength:    { name: "Muscular Strength", pct: 0.85, pctLabel: "85", reps: 5, sets: 4, rest: "3-5 min" }
+            endurance:   { name: "Muscular Endurance", pct: 0.60, pctLabel: "60", reps: 20, sets: 4, rest: "30-45s" },
+            hypertrophy: { name: "Hypertrophy (Muscle Growth)", pct: 0.75, pctLabel: "75", reps: 10, sets: 3, rest: "60-90s" },
+            strength:    { name: "Muscular Strength", pct: 0.85, pctLabel: "85", reps: 5, sets: 2, rest: "3-5 min" }
         };
 
         // Sessions saved before the rename used goalKey 'volume'.
