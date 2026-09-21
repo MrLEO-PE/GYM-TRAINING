@@ -695,6 +695,7 @@
         }
 
 
+        const SET_CHOICES = [2, 3, 4];   // the tabs offered under the session log
         let currentGoal = 'hypertrophy';
         let setsPerExercise = GOALS[currentGoal].sets;  // zone default; student can override to 3 or 4
         let store = JSON.parse(localStorage.getItem('igcse_app_store')) || {};
@@ -726,12 +727,16 @@
             if (!local) return merged;
             const mine = normaliseUserData(local);
 
+            // Anything the cloud copy simply does not carry is kept from the device. Doing this
+            // by field name meant every new setting had to be remembered here, and one that was
+            // forgotten would vanish whenever the cloud record happened to be older.
+            Object.keys(mine).forEach(k => {
+                if (merged[k] === undefined || merged[k] === null) merged[k] = mine[k];
+            });
+
             if (mine.history.length > merged.history.length) merged.history = mine.history;
             if (merged.machines.length === 0) merged.machines = mine.machines;
             if (merged.archivedMachines.length === 0) merged.archivedMachines = mine.archivedMachines;
-            if (!Array.isArray(merged.routine) && Array.isArray(mine.routine)) merged.routine = mine.routine;
-            if (!merged.slotCount && mine.slotCount) merged.slotCount = mine.slotCount;
-            if (!merged.igcse && mine.igcse) merged.igcse = mine.igcse;
             return merged;
         }
 
@@ -1212,6 +1217,7 @@
             await fetchFromCloud(currentUser);
             reconcileMachines(currentUser); // keep them on the shared class machine list
             restoreRoutine();               // bring back the 8 exercises they last used
+            restoreFocus();                 // and the training zone they were working on
             hideToast();
 
             localStorage.setItem('igcse_active_user', currentUser);
@@ -1689,9 +1695,29 @@
             const card = document.getElementById(`mode-${currentGoal}`);
             if (card) card.classList.add('active');
             setsPerExercise = GOALS[currentGoal].sets;   // each zone has its own standard set count
-            localStorage.setItem('igcse_sets_count', String(setsPerExercise));
+            saveFocus();
             renderSessionBuilder();
             renderRestNudge();
+        }
+
+        // The chosen zone and set count stick to the student the same way their machines do,
+        // so nobody has to re-pick their focus at the start of every lesson.
+        function saveFocus() {
+            if (!store[currentUser]) return;
+            store[currentUser].goalKey = currentGoal;
+            store[currentUser].setsPerExercise = setsPerExercise;
+            saveStore();
+        }
+
+        function restoreFocus() {
+            const u = store[currentUser] || {};
+            const key = normaliseGoalKey(u.goalKey);
+            currentGoal = GOALS[key] ? key : 'hypertrophy';
+            const saved = u.setsPerExercise;
+            setsPerExercise = SET_CHOICES.includes(saved) ? saved : GOALS[currentGoal].sets;
+            document.querySelectorAll('.grid-3 > .mode-card[id^="mode-"]').forEach(c => c.classList.remove('active'));
+            const card = document.getElementById(`mode-${currentGoal}`);
+            if (card) card.classList.add('active');
         }
 
 
@@ -1862,7 +1888,7 @@
 
         function setSetsCount(n) {
             setsPerExercise = n;
-            localStorage.setItem('igcse_sets_count', String(n));
+            saveFocus();
             document.querySelectorAll('#setsCountTabs .mode-card').forEach(c => c.classList.remove('active'));
             const tab = document.querySelector(`#setsCountTabs [data-sets="${n}"]`);
             if (tab) tab.classList.add('active');
@@ -2561,12 +2587,20 @@
                     ? `<span class="score-badge badge-high">✅ Trained Today</span>`
                     : `<span class="score-badge badge-low">⏳ Not Yet Today</span>`;
                 const lastLine = last ? `${last.date} — ${goalLabel(last)}${last.rpe ? ` (RPE ${last.rpe}/5)` : ''}` : 'No sessions logged';
+                const routine = (store[name].routine || []).filter(Boolean);
+                const picked = ((store[name].igcsePicks) || []).length;
                 return `<div class="history-item">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <strong>${name}</strong>
                         ${statusBadge}
                     </div>
                     <p style="font-size:0.85rem; color:var(--text-muted); margin-top:6px;">Last session: ${lastLine}</p>
+                    <p style="font-size:0.85rem; margin-top:6px;">
+                        🏋️ <b>${hist.length}</b> session${hist.length === 1 ? '' : 's'} logged
+                        &nbsp;·&nbsp; 🔧 <b>${routine.length}</b> machine${routine.length === 1 ? '' : 's'} chosen
+                        &nbsp;·&nbsp; 📄 <b style="color:${picked ? 'var(--accent-green)' : 'var(--text-muted)'};">${picked}/${IGCSE_SHEET_SESSIONS}</b> ticked for the sheet
+                    </p>
+                    <p style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">${routine.length ? routine.join(' · ') : 'No machines chosen yet'}</p>
                 </div>`;
             }).join('');
         }
@@ -2643,6 +2677,7 @@
             Object.keys(store).forEach(n => { reconcileMachines(n); ensureSessionIds(n); });
             initUserData(currentUser);
             restoreRoutine();               // bring back the 8 exercises they last used
+            restoreFocus();                 // and the training zone they were working on
             saveStore();
 
             renderUserSelector();
