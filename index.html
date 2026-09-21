@@ -559,9 +559,9 @@
         // Percentages are the Epley formula inverted (W/1RM = 30 / (30 + reps)),
         // so the working weight genuinely matches the rep target for each zone.
         const GOALS = {
-            endurance:   { name: "Muscular Endurance", pct: 0.60, pctLabel: "60", reps: 20, sets: 4, rest: "30-45s" },
-            hypertrophy: { name: "Hypertrophy (Muscle Growth)", pct: 0.75, pctLabel: "75", reps: 10, sets: 3, rest: "60-90s" },
-            strength:    { name: "Muscular Strength", pct: 0.85, pctLabel: "85", reps: 5, sets: 2, rest: "3-5 min" }
+            endurance:   { name: "Muscular Endurance", pct: 0.60, pctLabel: "60", reps: 20, repMin: 15, repMax: 30, sets: 4, rest: "30-45s" },
+            hypertrophy: { name: "Hypertrophy (Muscle Growth)", pct: 0.75, pctLabel: "75", reps: 10, repMin: 8, repMax: 12, sets: 3, rest: "60-90s" },
+            strength:    { name: "Muscular Strength", pct: 0.85, pctLabel: "85", reps: 5, repMin: 2, repMax: 6, sets: 2, rest: "3-5 min" }
         };
 
         // Sessions saved before the rename used goalKey 'volume'.
@@ -1138,11 +1138,21 @@
         // A student can add kg and/or raise the rep target on one machine without touching its
         // listed 1RM. Both stick to the machine, so the level carries from lesson to lesson.
         const LEVEL_STEP_KG = 2.5;
-        const REP_TARGET_CHOICES = [12, 15, 20, 25, 30];
 
-        function exerciseReps(m) { return m.repTarget || GOALS[currentGoal].reps; }
+        // Each zone allows its own rep window, so the override can't push a student out of the
+        // zone they picked. The zone's own figure is left out — the "Zone (N)" option covers it.
+        function repTargetChoices() {
+            const g = GOALS[currentGoal];
+            return Array.from({ length: g.repMax - g.repMin + 1 }, (_, i) => g.repMin + i).filter(r => r !== g.reps);
+        }
+
+        // A target saved under another zone is ignored rather than erased, so switching back restores it.
+        function exerciseReps(m) {
+            const g = GOALS[currentGoal];
+            return (m.repTarget >= g.repMin && m.repTarget <= g.repMax) ? m.repTarget : g.reps;
+        }
         function exerciseWeight(m) { return roundToWorkingWeight(m.pr * GOALS[currentGoal].pct) + (m.levelKg || 0); }
-        function isLevelled(m) { return (m.levelKg || 0) > 0 || !!m.repTarget; }
+        function isLevelled(m) { return (m.levelKg || 0) > 0 || exerciseReps(m) !== GOALS[currentGoal].reps; }
         // What the levelled load is already worth as a 1RM — the target to aim for at the retest.
         function projectedOneRm(m) { return Math.round(calcEpley(exerciseWeight(m), exerciseReps(m))); }
 
@@ -1581,7 +1591,7 @@
                                 <span style="font-size:0.78rem; color:#8b949e; margin-left:6px;">Reps:</span>
                                 <select onchange="setRepTarget(${mIdx}, this.value)" style="flex:0 0 auto; width:auto; min-width:0; padding:3px 6px; font-size:0.78rem;">
                                     <option value="">Zone (${goal.reps})</option>
-                                    ${REP_TARGET_CHOICES.map(r => `<option value="${r}" ${m.repTarget === r ? 'selected' : ''}>${r} reps</option>`).join('')}
+                                    ${repTargetChoices().map(r => `<option value="${r}" ${m.repTarget === r ? 'selected' : ''}>${r} reps</option>`).join('')}
                                 </select>
                             </div>
                             ${isLevelled(m) && m.pr > 0 ? `<p style="font-size:0.75rem; color:var(--accent-green); margin-top:6px;">📈 Hold ${reps} reps at ${workWeight} kg and you are on track for a <b>${projectedOneRm(m)} kg</b> 1RM by your final session. Your listed 1RM stays ${m.pr} kg until you retest it.</p>` : ''}
