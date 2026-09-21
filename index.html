@@ -366,9 +366,10 @@
     <!-- 3. WORKOUT SESSION LOG -->
     <div class="card">
         <h2>3. Workout Session Log</h2>
-        <p style="font-size: 0.85rem; color: #8b949e; margin-top: 4px;">Pick <b>up to 8 distinct machines</b> for today's session.</p>
+        <p style="font-size: 0.85rem; color: #8b949e; margin-top: 4px;">Pick your machines for today's session — <b>8 slots</b>, or add more up to <b>10</b>.</p>
         <div id="restNudge"></div>
         <div class="slot-picker-container" id="slotPickerContainer"></div>
+        <div id="slotCountControls" style="margin:10px 0;"></div>
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
             <span style="font-size:0.85rem; color:#8b949e;">Sets per exercise today:</span>
             <div class="grid-3" id="setsCountTabs" style="grid-template-columns:repeat(3, auto); gap:6px; margin:0;">
@@ -670,7 +671,32 @@
 
 
         // SAVE DATA TO CLOUD
-        async function syncToCloud() {
+        // Only one write is ever in flight. Firing them off in parallel let a slow early
+        // write land after a newer one and overwrite it, so a student's machine choice
+        // silently reverted in the cloud while the badge still said "Cloud Saved".
+        let cloudWriteInFlight = false;
+        const cloudDirtyUsers = new Set();
+
+        function syncToCloud(userName = currentUser) {
+            cloudDirtyUsers.add(userName);
+            if (cloudWriteInFlight) return;
+            return drainCloudWrites();
+        }
+
+        async function drainCloudWrites() {
+            cloudWriteInFlight = true;
+            try {
+                while (cloudDirtyUsers.size) {
+                    const user = cloudDirtyUsers.values().next().value;
+                    cloudDirtyUsers.delete(user);
+                    if (store[user]) await pushUserToCloud(user);   // always sends that user's latest state
+                }
+            } finally {
+                cloudWriteInFlight = false;
+            }
+        }
+
+        async function pushUserToCloud(userName) {
             const statusBadge = document.getElementById('cloudStatus');
             try {
                 statusBadge.className = "cloud-badge cloud-syncing";
@@ -686,8 +712,8 @@
                         'Prefer': 'resolution=merge-duplicates'
                     },
                     body: JSON.stringify({
-                        user_id: currentUser,
-                        data: store[currentUser],
+                        user_id: userName,
+                        data: store[userName],
                         updated_at: new Date().toISOString()
                     })
                 });
@@ -1522,19 +1548,48 @@
             saveStore();
         }
 
+        // 8 slots by default, extendable to 10. Stored per student so it syncs like everything else.
+        const MIN_SLOTS = 8, MAX_SLOTS = 10;
+        function slotCount() {
+            const n = (store[currentUser] && store[currentUser].slotCount) || MIN_SLOTS;
+            return Math.min(MAX_SLOTS, Math.max(MIN_SLOTS, n));
+        }
+
+        function addSlot() {
+            if (activeSlots.length >= MAX_SLOTS) return;
+            store[currentUser].slotCount = activeSlots.length + 1;
+            activeSlots.push("");
+            saveRoutine();
+            renderSessionBuilder();
+        }
+
+        // Only offered while the last slot is empty, so removing one can never drop a choice.
+        function removeSlot() {
+            if (activeSlots.length <= MIN_SLOTS) return;
+            store[currentUser].slotCount = activeSlots.length - 1;
+            activeSlots.pop();
+            saveRoutine();
+            renderSessionBuilder();
+        }
+
         function restoreRoutine() {
             const u = store[currentUser];
             const ms = (u && u.machines) || [];
             if (!u || !Array.isArray(u.routine)) {
                 activeSlots = [0, 1, 2, "", "", "", "", ""];   // first time: sensible default
-                return;
+            } else {
+                activeSlots = u.routine.map(name => {
+                    if (!name) return "";
+                    const i = ms.findIndex(m => m.name.trim().toLowerCase() === name.trim().toLowerCase());
+                    return i === -1 ? "" : i;   // machine deleted from the class list
+                });
             }
-            activeSlots = u.routine.map(name => {
-                if (!name) return "";
-                const i = ms.findIndex(m => m.name.trim().toLowerCase() === name.trim().toLowerCase());
-                return i === -1 ? "" : i;   // machine deleted from the class list
-            });
-            while (activeSlots.length < 8) activeSlots.push("");
+            // Never hide a slot that holds a machine, even if the saved count disagrees.
+            const lastUsed = activeSlots.reduce((last, v, i) => (v !== "" ? i : last), -1);
+            const n = Math.min(MAX_SLOTS, Math.max(slotCount(), lastUsed + 1));
+            activeSlots.length = n;
+            for (let i = 0; i < n; i++) if (activeSlots[i] === undefined) activeSlots[i] = "";
+            if (u) u.slotCount = n;
         }
 
 
@@ -1556,7 +1611,7 @@
             targetSubheading.innerHTML = `Zone default: <b>${goal.reps} Reps × ${setsPerExercise} Sets</b> | Working Weight: <b>${goal.pctLabel}% of 1RM</b> | Rest: <b>${goal.rest}</b>`;
             slotContainer.innerHTML = '';
             
-            for (let i = 0; i < 8; i++) {
+            for (let i = 0; i < activeSlots.length; i++) {
                 let optionsHTML = `<option value="">-- None --</option>`;
                 userMachines.forEach((m, mIdx) => {
                     const isPickedElsewhere = activeSlots.some((val, idx) => idx !== i && val === mIdx);
@@ -1565,6 +1620,15 @@
                 });
                 slotContainer.innerHTML += `<div class="slot-item"><label>Slot ${i + 1} Machine</label><select onchange="updateSlotSelection(${i}, this.value)">${optionsHTML}</select></div>`;
             }
+
+            const slots = activeSlots.length;
+            document.getElementById('slotCountControls').innerHTML =
+                (slots < MAX_SLOTS
+                    ? `<button class="btn btn-sm" style="width:auto; padding:4px 12px; font-size:0.8rem;" onclick="addSlot()">+ Add machine</button>`
+                    : `<span style="font-size:0.78rem; color:#8b949e;">Maximum of ${MAX_SLOTS} machines reached.</span>`)
+                + (slots > MIN_SLOTS && activeSlots[slots - 1] === ""
+                    ? `<button class="btn btn-sm" style="width:auto; padding:4px 12px; font-size:0.8rem; background:transparent; border:1px solid var(--card-border); color:#8b949e; margin-left:6px;" onclick="removeSlot()">− Remove slot ${slots}</button>`
+                    : '');
 
 
             workoutContainer.innerHTML = '';
