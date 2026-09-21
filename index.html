@@ -366,7 +366,7 @@
     <!-- 3. WORKOUT SESSION LOG -->
     <div class="card">
         <h2>3. Workout Session Log</h2>
-        <p style="font-size: 0.85rem; color: #8b949e; margin-top: 4px;">Pick your machines for today's session — <b>8 slots</b>, or add more up to <b>10</b>.</p>
+        <p style="font-size: 0.85rem; color: #8b949e; margin-top: 4px;">Pick your machines for today's session — <b>8 slots</b>, or add more up to <b>13</b>.</p>
         <div id="restNudge"></div>
         <div class="slot-picker-container" id="slotPickerContainer"></div>
         <div id="slotCountControls" style="margin:10px 0;"></div>
@@ -1549,7 +1549,7 @@
         }
 
         // 8 slots by default, extendable to 10. Stored per student so it syncs like everything else.
-        const MIN_SLOTS = 8, MAX_SLOTS = 10;
+        const MIN_SLOTS = 8, MAX_SLOTS = 13;   // 13 is what the IGCSE sheet has room for
         function slotCount() {
             const n = (store[currentUser] && store[currentUser].slotCount) || MIN_SLOTS;
             return Math.min(MAX_SLOTS, Math.max(MIN_SLOTS, n));
