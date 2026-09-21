@@ -1316,7 +1316,9 @@
         // ---- PER-EXERCISE LEVELLING ----
         // A student can add kg and/or raise the rep target on one machine without touching its
         // listed 1RM. Both stick to the machine, so the level carries from lesson to lesson.
-        const LEVEL_STEP_KG = 2.5;
+        // Biggest first: the buttons read -2.5 -1 -0.5 | +0.5 +1 +2.5 around the current value.
+        const LEVEL_STEPS = [2.5, 1, 0.5];
+        function kg(n) { return Number.isInteger(n) ? String(n) : n.toFixed(1); }
 
         // Each zone allows its own rep window, so the override can't push a student out of the
         // zone they picked. The zone's own figure is left out — the "Zone (N)" option covers it.
@@ -1799,12 +1801,13 @@
                                 <strong style="font-size:1.1rem; color:var(--text-heading);">${m.name}
                                     <button class="btn btn-sm" style="width:auto; padding:2px 8px; font-size:0.75rem; background:transparent; border:1px solid var(--danger); color:var(--danger); margin-left:6px;" onclick="openSafety(${mIdx})">🛡️ Safety</button>
                                 </strong>
-                                <span style="color:var(--accent-blue); font-weight:bold;">Target Weight: ${workWeight} kg${lvl > 0 ? ` <span style="color:var(--accent-green);">(+${lvl})</span>` : ''}</span>
+                                <span style="color:var(--accent-blue); font-weight:bold;">Target Weight: ${workWeight} kg${lvl > 0 ? ` <span style="color:var(--accent-green);">(+${kg(lvl)})</span>` : ''}</span>
                             </div>
                             <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:8px; padding:8px; background:rgba(88,166,255,0.06); border:1px solid var(--card-border); border-radius:6px;">
                                 <span style="font-size:0.78rem; color:var(--text-muted);">⬆️ Level up:</span>
-                                <button class="btn btn-sm" style="width:auto; padding:2px 10px; font-size:0.75rem;" onclick="adjustLevelKg(${mIdx}, -${LEVEL_STEP_KG})">−${LEVEL_STEP_KG} kg</button>
-                                <button class="btn btn-sm" style="width:auto; padding:2px 10px; font-size:0.75rem;" onclick="adjustLevelKg(${mIdx}, ${LEVEL_STEP_KG})">+${LEVEL_STEP_KG} kg</button>
+                                ${LEVEL_STEPS.map(s => `<button class="btn btn-sm" style="width:auto; padding:2px 8px; font-size:0.75rem;" onclick="adjustLevelKg(${mIdx}, -${s})">−${kg(s)}</button>`).join('')}
+                                <span style="font-size:0.8rem; font-weight:bold; min-width:54px; text-align:center; color:${lvl > 0 ? 'var(--accent-green)' : 'var(--text-muted)'};">${lvl > 0 ? '+' + kg(lvl) : '0'} kg</span>
+                                ${[...LEVEL_STEPS].reverse().map(s => `<button class="btn btn-sm" style="width:auto; padding:2px 8px; font-size:0.75rem;" onclick="adjustLevelKg(${mIdx}, ${s})">+${kg(s)}</button>`).join('')}
                                 <span style="font-size:0.78rem; color:var(--text-muted); margin-left:6px;">Reps:</span>
                                 <select onchange="setRepTarget(${mIdx}, this.value)" style="flex:0 0 auto; width:auto; min-width:0; padding:3px 6px; font-size:0.78rem;">
                                     <option value="">Zone (${goal.reps})</option>
