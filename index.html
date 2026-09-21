@@ -698,6 +698,37 @@
         let machineLeaderboardMode = 'strongest';
 
 
+        // Guarantees the shape the rest of the app relies on. A record that arrives without
+        // a history used to stop the page loading half way through rendering it.
+        function normaliseUserData(u) {
+            const d = (u && typeof u === 'object') ? u : {};
+            return Object.assign({}, d, {
+                machines: Array.isArray(d.machines) ? d.machines : [],
+                archivedMachines: Array.isArray(d.archivedMachines) ? d.archivedMachines : [],
+                history: Array.isArray(d.history) ? d.history : []
+            });
+        }
+
+        // The cloud copy replaces the local one whenever the app loads. A cloud record that
+        // was missing a field used to wipe the local one with it, taking a student's logged
+        // sessions down with it, so a field is only taken from the cloud when the cloud
+        // actually holds something. Sessions are only ever added, never removed, so when the
+        // two disagree the longer history is the safer one to keep.
+        function mergeUserData(local, cloud) {
+            const merged = normaliseUserData(cloud);
+            if (!local) return merged;
+            const mine = normaliseUserData(local);
+
+            if (mine.history.length > merged.history.length) merged.history = mine.history;
+            if (merged.machines.length === 0) merged.machines = mine.machines;
+            if (merged.archivedMachines.length === 0) merged.archivedMachines = mine.archivedMachines;
+            if (!Array.isArray(merged.routine) && Array.isArray(mine.routine)) merged.routine = mine.routine;
+            if (!merged.slotCount && mine.slotCount) merged.slotCount = mine.slotCount;
+            if (!merged.igcse && mine.igcse) merged.igcse = mine.igcse;
+            return merged;
+        }
+
+
         // FETCH LIST + FULL DATA OF ALL STUDENTS FROM CLOUD (used for class overview)
         // Cloud is treated as the source of truth: students removed elsewhere are purged locally too.
         async function fetchAllUsersFromCloud() {
@@ -728,7 +759,7 @@
                     });
 
                     studentRows.forEach(r => {
-                        if (r.data) store[r.user_id] = r.data;
+                        if (r.data) store[r.user_id] = mergeUserData(store[r.user_id], r.data);
                         else if (!store[r.user_id]) initUserData(r.user_id);
                     });
 
@@ -771,7 +802,7 @@
                 if (response.ok) {
                     const data = await response.json();
                     if (data && data.length > 0) {
-                        store[userName] = data[0].data;
+                        store[userName] = mergeUserData(store[userName], data[0].data);
                         localStorage.setItem('igcse_app_store', JSON.stringify(store));
                     }
                     statusBadge.className = "cloud-badge cloud-on";
