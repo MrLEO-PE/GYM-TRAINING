@@ -542,6 +542,11 @@
                 <button class="close-btn" onclick="closeClassOverview()">&times;</button>
             </div>
             <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:10px;">Pulled from the cloud — click 🔄 Refresh List first if a student was just added on another device.</p>
+            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:10px; margin-bottom:12px; background:var(--surface-sunken); border:1px solid var(--card-border); border-radius:6px;">
+                <button class="btn btn-sm" id="classIgcseBtn" style="background:var(--btn-bright-green); color:var(--on-accent);" onclick="downloadClassIgcseLogs()">📄 Download every sheet</button>
+                <span style="font-size:0.78rem; color:var(--text-muted);">One PDF, one page per student, using the sessions each of them ticked.</span>
+                <span id="classIgcseStatus" style="font-size:0.8rem; width:100%;"></span>
+            </div>
             <div id="classOverviewList" style="overflow-y:auto;"></div>
         </div>
     </div>
@@ -2397,6 +2402,52 @@
                 }));
         }
 
+        // Fills one student's sheet from their saved details and their chosen sessions, then
+        // flattens it. Shared by the single download and the whole-class download so both
+        // produce exactly the same page.
+        async function fillIgcseSheet(templateBytes, userName) {
+            const { PDFDocument, StandardFonts } = PDFLib;
+            const hdr = (store[userName] && store[userName].igcse) || {};
+            const doc = await PDFDocument.load(templateBytes);
+            const form = doc.getForm();
+            const setTxt = (n, v) => { try { form.getTextField(n).setText(String(v ?? '')); } catch (e) {} };
+            const setSel = (n, v) => { try { if (v) form.getDropdown(n).select(v); } catch (e) {} };
+
+            const d = buildIgcseData(userName);
+
+            setSel('Syllabus and component', hdr.syllabus || '0413/02 Physical Education');
+            setSel('Gender', hdr.gender);
+            setTxt('Centre number', hdr.centre);
+            setTxt('Candidate number', hdr.candNo);
+            setTxt('Candidate name', userName);
+            setTxt('Body mass', hdr.mass);
+            setTxt('Related activity', hdr.activity);
+            setTxt('Training intentions_1', hdr.intent);
+            setTxt('1 Rep max_1', 'Epley formula: 1RM = W x (1 + R/30)');
+
+            // Date_1 heads the 1RM kg column, Date_2..9 the 8 sessions, Date_10 the 1RM test column
+            const firstBase = d.rows.find(r => r.baselineDate);
+            const lastRetest = [...d.rows].reverse().find(r => r.retestDate);
+            setTxt('Date_1_1', firstBase ? shortDate(firstBase.baselineDate) : '');
+            d.sessions.forEach((s, i) => setTxt(`Date_${i + 2}_1`, shortDate(s.isoDate)));
+            setTxt('Date_10_1', lastRetest ? shortDate(lastRetest.retestDate) : '');
+
+            d.rows.forEach((row, ri) => {
+                const n = ri + 1;
+                setTxt(`ExerciseRow${n}_1`, row.name);
+                setTxt(`1RM kgRow${n}_1`, row.baselinePr);
+                setTxt(`1RM testRow${n}_1`, row.retestPr);
+                row.cells.forEach((c, ci) => setTxt(`WRS${ci + 1}_Row${n}_1`, c));
+            });
+
+            // Flatten so the text is painted into the page. Live form fields are re-rendered
+            // by each viewer's own font engine, which is why tablets differed from the laptop.
+            form.updateFieldAppearances(await doc.embedFont(StandardFonts.Helvetica));
+            form.flatten();
+            return { doc, sessionCount: d.sessions.length, missingDetails: !hdr.centre || !hdr.candNo };
+        }
+
+
         async function generateIgcseLog() {
             const status = document.getElementById('igcseStatus');
             const hdr = {
@@ -2417,43 +2468,7 @@
                 const bytes = await getTemplateBytes();
                 status.textContent = '⏳ Filling the form...';
 
-                const { PDFDocument, StandardFonts } = PDFLib;
-                const doc = await PDFDocument.load(bytes);
-                const form = doc.getForm();
-                const setTxt = (n, v) => { try { form.getTextField(n).setText(String(v ?? '')); } catch (e) {} };
-                const setSel = (n, v) => { try { if (v) form.getDropdown(n).select(v); } catch (e) {} };
-
-                const d = buildIgcseData(currentUser);
-
-                setSel('Syllabus and component', hdr.syllabus);
-                setSel('Gender', hdr.gender);
-                setTxt('Centre number', hdr.centre);
-                setTxt('Candidate number', hdr.candNo);
-                setTxt('Candidate name', currentUser);
-                setTxt('Body mass', hdr.mass);
-                setTxt('Related activity', hdr.activity);
-                setTxt('Training intentions_1', hdr.intent);
-                setTxt('1 Rep max_1', 'Epley formula: 1RM = W x (1 + R/30)');
-
-                // Date_1 heads the 1RM kg column, Date_2..9 the 8 sessions, Date_10 the 1RM test column
-                const firstBase = d.rows.find(r => r.baselineDate);
-                const lastRetest = [...d.rows].reverse().find(r => r.retestDate);
-                setTxt('Date_1_1', firstBase ? shortDate(firstBase.baselineDate) : '');
-                d.sessions.forEach((s, i) => setTxt(`Date_${i + 2}_1`, shortDate(s.isoDate)));
-                setTxt('Date_10_1', lastRetest ? shortDate(lastRetest.retestDate) : '');
-
-                d.rows.forEach((row, ri) => {
-                    const n = ri + 1;
-                    setTxt(`ExerciseRow${n}_1`, row.name);
-                    setTxt(`1RM kgRow${n}_1`, row.baselinePr);
-                    setTxt(`1RM testRow${n}_1`, row.retestPr);
-                    row.cells.forEach((c, ci) => setTxt(`WRS${ci + 1}_Row${n}_1`, c));
-                });
-
-                // Flatten so the text is painted into the page. Live form fields are re-rendered
-                // by each viewer's own font engine, which is why tablets differed from the laptop.
-                form.updateFieldAppearances(await doc.embedFont(StandardFonts.Helvetica));
-                form.flatten();
+                const { doc } = await fillIgcseSheet(bytes, currentUser);
                 const out = await doc.save();
 
                 const blob = new Blob([out], { type: 'application/pdf' });
@@ -2477,6 +2492,55 @@
         }
         function closeClassOverview() {
             document.getElementById('classOverviewModal').classList.remove('active');
+        }
+
+
+        // Every student's sheet in one file, one page each, using the sessions each of them
+        // ticked in section 5. A student who ticked nothing still gets their latest work.
+        async function downloadClassIgcseLogs() {
+            const status = document.getElementById('classIgcseStatus');
+            const btn = document.getElementById('classIgcseBtn');
+            const names = Object.keys(store).filter(n => n !== MACHINES_KEY).sort((a, b) => a.localeCompare(b));
+            if (names.length === 0) { status.textContent = 'No students to export yet.'; return; }
+
+            btn.disabled = true;
+            try {
+                status.textContent = '⏳ Preparing...';
+                await loadPdfLib();
+                const bytes = await getTemplateBytes();
+                const { PDFDocument } = PDFLib;
+                const out = await PDFDocument.create();
+                const noSessions = [], noDetails = [];
+
+                for (let i = 0; i < names.length; i++) {
+                    status.textContent = `⏳ Sheet ${i + 1} of ${names.length} — ${names[i]}`;
+                    await new Promise(r => setTimeout(r, 0));   // let the message repaint
+                    const sheet = await fillIgcseSheet(bytes, names[i]);
+                    if (sheet.sessionCount === 0) noSessions.push(names[i]);
+                    if (sheet.missingDetails) noDetails.push(names[i]);
+                    const [page] = await out.copyPages(sheet.doc, [0]);
+                    out.addPage(page);
+                }
+
+                status.textContent = '⏳ Building the file...';
+                const outBytes = await out.save();
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(new Blob([outBytes], { type: 'application/pdf' }));
+                a.download = `IGCSE_Weight_Training_Logs_${new Date().toISOString().slice(0, 10)}.pdf`;
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+
+                const warn = [];
+                if (noSessions.length) warn.push(`<br>⚠️ No sessions logged yet: <b>${noSessions.join(', ')}</b>`);
+                if (noDetails.length) warn.push(`<br>⚠️ Missing centre or candidate number: <b>${noDetails.join(', ')}</b>`);
+                status.innerHTML = `✅ Downloaded ${names.length} sheet${names.length > 1 ? 's' : ''} `
+                    + `(${(outBytes.length / 1024 / 1024).toFixed(1)} MB).` + warn.join('');
+            } catch (err) {
+                console.error(err);
+                status.textContent = '⚠️ ' + err.message;
+            } finally {
+                btn.disabled = false;
+            }
         }
 
 
