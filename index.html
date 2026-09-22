@@ -2600,7 +2600,11 @@
                         &nbsp;·&nbsp; 🔧 <b>${routine.length}</b> machine${routine.length === 1 ? '' : 's'} chosen
                         &nbsp;·&nbsp; 📄 <b style="color:${picked ? 'var(--accent-green)' : 'var(--text-muted)'};">${picked}/${IGCSE_SHEET_SESSIONS}</b> ticked for the sheet
                     </p>
-                    <p style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">${routine.length ? routine.join(' · ') : 'No machines chosen yet'}</p>
+                    ${routine.length
+                        ? `<div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:6px;">${routine.map(n =>
+                            `<span style="font-size:0.72rem; color:var(--text-muted); background:var(--surface-raised); border:1px solid var(--card-border); border-radius:4px; padding:2px 7px; max-width:100%;">${n}</span>`
+                          ).join('')}</div>`
+                        : `<p style="font-size:0.75rem; color:var(--text-muted); margin-top:6px;">No machines chosen yet</p>`}
                 </div>`;
             }).join('');
         }
