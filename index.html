@@ -1406,6 +1406,7 @@
                             <label style="align-self:center;">Current 1RM (kg):</label>
                             <input type="number" value="${m.pr}" onchange="updatePR(${idx}, this.value)">
                             ${showVerifyBtn ? `<button class="btn btn-green btn-sm" style="white-space:nowrap;" onclick="verifyCurrentPr(${idx})">✅ Verify</button>` : ''}
+                            ${prSparkline(m)}
                         </div>
                         ${verifiedLine}
                     </div>`;
@@ -1413,6 +1414,33 @@
             renderSessionBuilder();
             renderLeaderboard();
             if (document.getElementById('machineSectionBody').style.display === 'none') renderMachineSummary();
+        }
+
+
+        // A glance at whether a 1RM is climbing, drawn beside the number itself so the page
+        // gains no new section. Verified tests only, so an untested guess cannot flatter the
+        // line, and nothing is drawn at all until there are two of them.
+        function prSparkline(machine) {
+            const pts = (machine.prHistory || []).filter(h => h.verified && h.pr > 0);
+            if (pts.length < 2) return '';
+
+            const w = 62, h = 18, pad = 2.5;
+            const vals = pts.map(p => p.pr);
+            const lo = Math.min(...vals), hi = Math.max(...vals);
+            const span = hi - lo || 1;
+            const stepX = (w - pad * 2) / (vals.length - 1);
+            const yOf = v => (h - pad) - ((v - lo) / span) * (h - pad * 2);
+            const points = vals.map((v, i) => `${(pad + i * stepX).toFixed(1)},${yOf(v).toFixed(1)}`).join(' ');
+
+            const gain = vals[vals.length - 1] - vals[0];
+            const tone = gain > 0 ? 'var(--accent-green)' : gain < 0 ? 'var(--accent-orange)' : 'var(--text-muted)';
+            const label = `1RM over ${vals.length} verified tests: ${lo} to ${hi} kg (${gain >= 0 ? '+' : ''}${kg(gain)} kg)`;
+
+            return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="flex:0 0 auto; align-self:center;" role="img" aria-label="${label}">
+                <title>${label}</title>
+                <polyline points="${points}" fill="none" stroke="${tone}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+                <circle cx="${(pad + (vals.length - 1) * stepX).toFixed(1)}" cy="${yOf(vals[vals.length - 1]).toFixed(1)}" r="2" fill="${tone}"/>
+            </svg>`;
         }
 
 
