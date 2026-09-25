@@ -121,11 +121,11 @@
             -webkit-overflow-scrolling: touch;
             scrollbar-width: thin;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
         }
         .profile-box > * { flex: 0 0 auto; }
         /* Capped so a long student name cannot push the last button off the row */
-        .profile-box select { max-width: 140px; }
+        .profile-box select { max-width: 112px; }
 
 
         .cloud-badge {
@@ -287,7 +287,8 @@
             <button class="btn btn-sm" style="background:transparent;border:1px solid var(--card-border);color:var(--text-main);" onclick="refreshUserList()" title="Pull in students created on other devices">🔄 Refresh</button>
             <button class="btn-danger btn-sm" onclick="deleteUser(currentUser)" title="Permanently delete the current student">🗑️ Delete</button>
             <button class="btn btn-sm" style="background:var(--btn-gold); color:var(--on-accent);" onclick="openClassOverview()" title="See the whole class">👥 Class</button>
-            <button class="btn btn-sm" style="background:var(--btn-bright-green); color:var(--on-accent);" onclick="openIgcseLog()">📄 IGCSE Log</button>
+            <button class="btn btn-sm" style="background:var(--btn-bright-green); color:var(--on-accent);" onclick="openIgcseLog()">📄 IGCSE</button>
+            <button class="btn btn-sm" style="background:transparent; border:1px solid var(--accent-blue); color:var(--accent-blue);" onclick="openTutorial()" title="How to use this app, step by step">🎓 Tutorial</button>
         </div>
     </div>
 
@@ -530,6 +531,28 @@
         </div>
         <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 10px; margin-top:4px;">Review your overall session score percentages.</p>
         <div id="historyList"></div>
+    </div>
+
+
+    <!-- TUTORIAL MODAL -->
+    <div class="modal-overlay" id="tutorialModal">
+        <div class="modal-content" style="max-width:860px;">
+            <div class="modal-header">
+                <h2>🎓 How to use this app</h2>
+                <button class="close-btn" onclick="closeTutorial()">&times;</button>
+            </div>
+            <p id="tutorialStep" style="font-size:0.8rem; color:var(--text-muted); margin-bottom:4px;"></p>
+            <h3 id="tutorialTitle" style="margin-bottom:8px;"></h3>
+            <div style="flex:1; overflow:auto; background:var(--surface-sunken); border:1px solid var(--card-border); border-radius:6px; padding:8px;">
+                <img id="tutorialImg" alt="" style="width:100%; height:auto; display:block; border-radius:4px;">
+            </div>
+            <p id="tutorialText" style="font-size:0.88rem; margin-top:10px; line-height:1.5;"></p>
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:12px;">
+                <button class="btn btn-sm" id="tutorialPrev" style="width:auto;" onclick="stepTutorial(-1)">← Back</button>
+                <button class="btn btn-sm" id="tutorialNext" style="width:auto;" onclick="stepTutorial(1)">Next →</button>
+                <span id="tutorialDots" style="margin-left:auto; font-size:0.75rem; color:var(--text-muted);"></span>
+            </div>
+        </div>
     </div>
 
 
@@ -2653,6 +2676,89 @@
                 console.error(err);
                 status.textContent = '⚠️ ' + err.message;
             }
+        }
+
+
+        // Pictures are taken from this app, so what a student sees here matches their screen.
+        const TUTORIAL = [
+          [
+                    "01-your-name.png",
+                    "Choose your name",
+                    "Pick yourself from the list. If your name is not there yet, tap <b>+ Add</b> and type it once — the app remembers you after that."
+          ],
+          [
+                    "02-your-1rm.png",
+                    "Enter your 1RM",
+                    "For each machine, type the heaviest weight you can lift once, then tap <b>Verify</b>. Every target weight the app gives you is worked out from this number."
+          ],
+          [
+                    "03-epley-table.png",
+                    "Not sure of your 1RM?",
+                    "Tap <b>Epley</b>. Enter a weight you can manage and how many reps you did, and the table works your 1RM out for you. Tap any figure to use it."
+          ],
+          [
+                    "04-safety.png",
+                    "Check the safety notes",
+                    "Tap <b>Safety</b> on a machine before you use it. Read the set-up and the rules — your teacher wrote these for this gym."
+          ],
+          [
+                    "05-todays-focus.png",
+                    "Pick today’s focus",
+                    "Endurance, Size or Strength. Each one changes the weight, the reps and the sets you are aiming for, so pick the one your lesson is about."
+          ],
+          [
+                    "06-pick-machines.png",
+                    "Choose your machines",
+                    "Pick what you will use today, in the order you will use it. Eight slots to start, and <b>+ Add machine</b> gives you more, up to 13."
+          ],
+          [
+                    "07-reps-and-sets.png",
+                    "Set reps and sets for today",
+                    "These apply to every machine you picked. The choices change with your focus, so you cannot set something that works against it."
+          ],
+          [
+                    "08-personalise.png",
+                    "Personalise one machine",
+                    "Tap <b>Personalise</b> on any machine to add weight or change its reps and sets on its own. The button then shows what you changed."
+          ],
+          [
+                    "09-log-your-reps.png",
+                    "Log your reps",
+                    "Type how many reps you managed in each set. If you hit the target every time, <b>Hit all</b> fills them in at once."
+          ],
+          [
+                    "10-save-workout.png",
+                    "Save the session",
+                    "Say how hard it felt, then tap <b>Save Today’s Workout</b>. Your score is how close you got to your targets."
+          ],
+          [
+                    "11-tick-your-8.png",
+                    "Tick your 8 best sessions",
+                    "Your IGCSE sheet has room for 8. Tick the ones that best show your training — they turn green when chosen."
+          ],
+          [
+                    "12-download-sheet.png",
+                    "Download your IGCSE log",
+                    "Tap <b>IGCSE Log</b>, fill in your centre and candidate number once, and download the sheet to hand in."
+          ]
+];
+        let tutorialAt = 0;
+
+        function openTutorial() { tutorialAt = 0; renderTutorial(); document.getElementById("tutorialModal").classList.add("active"); }
+        function closeTutorial() { document.getElementById("tutorialModal").classList.remove("active"); }
+        function stepTutorial(by) { tutorialAt = Math.min(TUTORIAL.length - 1, Math.max(0, tutorialAt + by)); renderTutorial(); }
+
+        function renderTutorial() {
+            const [img, title, text] = TUTORIAL[tutorialAt];
+            document.getElementById("tutorialStep").textContent = "Step " + (tutorialAt + 1) + " of " + TUTORIAL.length;
+            document.getElementById("tutorialTitle").textContent = title;
+            document.getElementById("tutorialText").innerHTML = text;
+            const el = document.getElementById("tutorialImg");
+            el.src = "tutorial/" + img;
+            el.alt = title;
+            document.getElementById("tutorialPrev").disabled = tutorialAt === 0;
+            document.getElementById("tutorialNext").disabled = tutorialAt === TUTORIAL.length - 1;
+            document.getElementById("tutorialDots").textContent = "●".repeat(tutorialAt + 1) + "○".repeat(TUTORIAL.length - tutorialAt - 1);
         }
 
 
