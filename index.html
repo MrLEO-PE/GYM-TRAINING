@@ -469,6 +469,8 @@
             <span style="font-size:0.85rem; color:var(--text-muted);">Sets per exercise today:</span>
             <!-- filled by renderSessionBuilder: the choices depend on the zone -->
             <div class="grid-3" id="setsCountTabs" style="grid-template-columns:repeat(3, auto); gap:6px; margin:0;"></div>
+            <span style="font-size:0.85rem; color:var(--text-muted);">Reps per set:</span>
+            <select id="repsCountPicker" onchange="setRepsCount(parseInt(this.value))" style="flex:0 0 auto; width:auto; min-width:0; padding:4px 8px; font-size:0.85rem;"></select>
         </div>
         <p id="targetSubheading" style="margin-bottom:15px; font-weight: 500;"></p>
         <div id="workoutLog"></div>
@@ -694,6 +696,7 @@
 
         let currentGoal = 'hypertrophy';
         let setsPerExercise = GOALS[currentGoal].sets;  // the default for the whole session; a machine may override it
+        let repsPerExercise = GOALS[currentGoal].reps;  // same idea for reps
         let store = JSON.parse(localStorage.getItem('igcse_app_store')) || {};
         let currentUser = localStorage.getItem('igcse_active_user') || 'Student 1';
         let activeSlots = [0, 1, 2, "", "", "", "", ""];
@@ -1327,13 +1330,13 @@
         // zone they picked. The zone's own figure is left out — the "Zone (N)" option covers it.
         function repTargetChoices() {
             const g = GOALS[currentGoal];
-            return Array.from({ length: g.repMax - g.repMin + 1 }, (_, i) => g.repMin + i).filter(r => r !== g.reps);
+            return Array.from({ length: g.repMax - g.repMin + 1 }, (_, i) => g.repMin + i);
         }
 
         // A target saved under another zone is ignored rather than erased, so switching back restores it.
         function exerciseReps(m) {
             const g = GOALS[currentGoal];
-            return (m.repTarget >= g.repMin && m.repTarget <= g.repMax) ? m.repTarget : g.reps;
+            return (m.repTarget >= g.repMin && m.repTarget <= g.repMax) ? m.repTarget : repsPerExercise;
         }
         // Sets work the same way as reps: the zone sets the window, the row above picks the
         // default for the whole session, and a machine may override within that window.
@@ -1352,7 +1355,7 @@
         }
 
         function exerciseWeight(m) { return roundToWorkingWeight(m.pr * GOALS[currentGoal].pct) + (m.levelKg || 0); }
-        function isLevelled(m) { return (m.levelKg || 0) > 0 || exerciseReps(m) !== GOALS[currentGoal].reps; }
+        function isLevelled(m) { return (m.levelKg || 0) > 0 || exerciseReps(m) !== repsPerExercise; }
         // What the levelled load is already worth as a 1RM — the target to aim for at the retest.
         function projectedOneRm(m) { return Math.round(calcEpley(exerciseWeight(m), exerciseReps(m))); }
 
@@ -1736,6 +1739,7 @@
             const card = document.getElementById(`mode-${currentGoal}`);
             if (card) card.classList.add('active');
             setsPerExercise = GOALS[currentGoal].sets;   // each zone has its own standard set count
+            repsPerExercise = GOALS[currentGoal].reps;
             saveFocus();
             renderSessionBuilder();
             renderRestNudge();
@@ -1747,6 +1751,7 @@
             if (!store[currentUser]) return;
             store[currentUser].goalKey = currentGoal;
             store[currentUser].setsPerExercise = setsPerExercise;
+            store[currentUser].repsPerExercise = repsPerExercise;
             saveStore();
         }
 
@@ -1756,6 +1761,8 @@
             currentGoal = GOALS[key] ? key : 'hypertrophy';
             const saved = u.setsPerExercise;
             setsPerExercise = setChoices().includes(saved) ? saved : GOALS[currentGoal].sets;
+            const savedReps = u.repsPerExercise;
+            repsPerExercise = repTargetChoices().includes(savedReps) ? savedReps : GOALS[currentGoal].reps;
             document.querySelectorAll('.grid-3 > .mode-card[id^="mode-"]').forEach(c => c.classList.remove('active'));
             const card = document.getElementById(`mode-${currentGoal}`);
             if (card) card.classList.add('active');
@@ -1830,7 +1837,7 @@
             const goal = GOALS[currentGoal];
 
 
-            targetSubheading.innerHTML = `Zone default: <b>${goal.reps} Reps × ${setsPerExercise} Sets</b> | Working Weight: <b>${goal.pctLabel}% of 1RM</b> | Rest: <b>${goal.rest}</b>`;
+            targetSubheading.innerHTML = `Today: <b>${repsPerExercise} Reps × ${setsPerExercise} Sets</b> | Working Weight: <b>${goal.pctLabel}% of 1RM</b> | Rest: <b>${goal.rest}</b>`;
             slotContainer.innerHTML = '';
             
             for (let i = 0; i < activeSlots.length; i++) {
@@ -1878,8 +1885,8 @@
                                 ${[...LEVEL_STEPS].reverse().map(s => `<button class="btn btn-sm" style="width:auto; padding:2px 8px; font-size:0.75rem;" onclick="adjustLevelKg(${mIdx}, ${s})">+${kg(s)}</button>`).join('')}
                                 <span style="font-size:0.78rem; color:var(--text-muted); margin-left:6px;">Reps:</span>
                                 <select onchange="setRepTarget(${mIdx}, this.value)" style="flex:0 0 auto; width:auto; min-width:0; padding:3px 6px; font-size:0.78rem;">
-                                    <option value="">Zone (${goal.reps})</option>
-                                    ${repTargetChoices().map(r => `<option value="${r}" ${m.repTarget === r ? 'selected' : ''}>${r} reps</option>`).join('')}
+                                    <option value="">Today (${repsPerExercise})</option>
+                                    ${repTargetChoices().filter(r => r !== repsPerExercise).map(r => `<option value="${r}" ${m.repTarget === r ? 'selected' : ''}>${r} reps</option>`).join('')}
                                 </select>
                                 <span style="font-size:0.78rem; color:var(--text-muted);">Sets:</span>
                                 <select onchange="setSetTarget(${mIdx}, this.value)" style="flex:0 0 auto; width:auto; min-width:0; padding:3px 6px; font-size:0.78rem;">
@@ -1903,6 +1910,8 @@
             if (activeCount === 0) {
                 workoutContainer.innerHTML = `<p style="color:var(--text-muted); text-align:center; padding:20px; border:1px dashed var(--card-border); border-radius:6px;">Select at least 1 machine in the slots above to display your session log.</p>`;
             }
+            document.getElementById('repsCountPicker').innerHTML = repTargetChoices().map(n =>
+                `<option value="${n}" ${n === repsPerExercise ? 'selected' : ''}>${n} reps</option>`).join('');
             document.getElementById('setsCountTabs').innerHTML = setChoices().map(n =>
                 `<div class="mode-card${n === setsPerExercise ? ' active' : ''}" data-sets="${n}" onclick="setSetsCount(${n})" style="padding:5px 14px;"><small>${n} set${n === 1 ? '' : 's'}</small></div>`
             ).join('');
@@ -1933,6 +1942,12 @@
             }
         }
 
+
+        function setRepsCount(n) {
+            repsPerExercise = n;
+            saveFocus();
+            renderSessionBuilder();
+        }
 
         function setSetsCount(n) {
             setsPerExercise = n;
@@ -2117,7 +2132,7 @@
                 isoDate: new Date().toISOString().slice(0, 10),
                 goalName: goal.name,
                 goalKey: currentGoal,
-                targetReps: goal.reps,
+                targetReps: repsPerExercise,
                 setsPlanned: setsPerExercise,
                 successRate: successRate,
                 machines: machineDetails,
