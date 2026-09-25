@@ -467,11 +467,8 @@
         <div id="slotCountControls" style="margin:10px 0;"></div>
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
             <span style="font-size:0.85rem; color:var(--text-muted);">Sets per exercise today:</span>
-            <div class="grid-3" id="setsCountTabs" style="grid-template-columns:repeat(3, auto); gap:6px; margin:0;">
-                <div class="mode-card" data-sets="2" onclick="setSetsCount(2)" style="padding:5px 14px;"><small>2 sets</small></div>
-                <div class="mode-card" data-sets="3" onclick="setSetsCount(3)" style="padding:5px 14px;"><small>3 sets</small></div>
-                <div class="mode-card" data-sets="4" onclick="setSetsCount(4)" style="padding:5px 14px;"><small>4 sets</small></div>
-            </div>
+            <!-- filled by renderSessionBuilder: the choices depend on the zone -->
+            <div class="grid-3" id="setsCountTabs" style="grid-template-columns:repeat(3, auto); gap:6px; margin:0;"></div>
         </div>
         <p id="targetSubheading" style="margin-bottom:15px; font-weight: 500;"></p>
         <div id="workoutLog"></div>
@@ -679,9 +676,9 @@
         // Percentages are the Epley formula inverted (W/1RM = 30 / (30 + reps)),
         // so the working weight genuinely matches the rep target for each zone.
         const GOALS = {
-            endurance:   { name: "Muscular Endurance", pct: 0.60, pctLabel: "60", reps: 20, repMin: 15, repMax: 30, sets: 4, rest: "30-45s" },
-            hypertrophy: { name: "Muscular Size", pct: 0.75, pctLabel: "75", reps: 10, repMin: 8, repMax: 12, sets: 3, rest: "60-90s" },
-            strength:    { name: "Muscular Strength", pct: 0.85, pctLabel: "85", reps: 5, repMin: 2, repMax: 6, sets: 2, rest: "3-5 min" }
+            endurance:   { name: "Muscular Endurance", pct: 0.60, pctLabel: "60", reps: 20, repMin: 15, repMax: 30, sets: 4, setMin: 3, setMax: 5, rest: "30-45s" },
+            hypertrophy: { name: "Muscular Size", pct: 0.75, pctLabel: "75", reps: 10, repMin: 8, repMax: 12, sets: 3, setMin: 2, setMax: 4, rest: "60-90s" },
+            strength:    { name: "Muscular Strength", pct: 0.85, pctLabel: "85", reps: 5, repMin: 2, repMax: 6, sets: 2, setMin: 1, setMax: 3, rest: "3-5 min" }
         };
 
         // Sessions saved before the rename used goalKey 'volume'.
@@ -695,9 +692,8 @@
         }
 
 
-        const SET_CHOICES = [2, 3, 4];   // the tabs offered under the session log
         let currentGoal = 'hypertrophy';
-        let setsPerExercise = GOALS[currentGoal].sets;  // zone default; student can override to 3 or 4
+        let setsPerExercise = GOALS[currentGoal].sets;  // the default for the whole session; a machine may override it
         let store = JSON.parse(localStorage.getItem('igcse_app_store')) || {};
         let currentUser = localStorage.getItem('igcse_active_user') || 'Student 1';
         let activeSlots = [0, 1, 2, "", "", "", "", ""];
@@ -1218,6 +1214,7 @@
             reconcileMachines(currentUser); // keep them on the shared class machine list
             restoreRoutine();               // bring back the 8 exercises they last used
             restoreFocus();                 // and the training zone they were working on
+            saveRoutine();                  // record them, even if the student never touched a slot
             hideToast();
 
             localStorage.setItem('igcse_active_user', currentUser);
@@ -1338,6 +1335,22 @@
             const g = GOALS[currentGoal];
             return (m.repTarget >= g.repMin && m.repTarget <= g.repMax) ? m.repTarget : g.reps;
         }
+        // Sets work the same way as reps: the zone sets the window, the row above picks the
+        // default for the whole session, and a machine may override within that window.
+        function setChoices() {
+            const g = GOALS[currentGoal];
+            return Array.from({ length: g.setMax - g.setMin + 1 }, (_, i) => g.setMin + i);
+        }
+        function exerciseSets(m) {
+            const g = GOALS[currentGoal];
+            return (m.setTarget >= g.setMin && m.setTarget <= g.setMax) ? m.setTarget : setsPerExercise;
+        }
+        function setSetTarget(mIdx, value) {
+            store[currentUser].machines[mIdx].setTarget = value ? parseInt(value) : null;
+            saveStore();
+            rerenderKeepingReps();
+        }
+
         function exerciseWeight(m) { return roundToWorkingWeight(m.pr * GOALS[currentGoal].pct) + (m.levelKg || 0); }
         function isLevelled(m) { return (m.levelKg || 0) > 0 || exerciseReps(m) !== GOALS[currentGoal].reps; }
         // What the levelled load is already worth as a 1RM — the target to aim for at the retest.
@@ -1742,7 +1755,7 @@
             const key = normaliseGoalKey(u.goalKey);
             currentGoal = GOALS[key] ? key : 'hypertrophy';
             const saved = u.setsPerExercise;
-            setsPerExercise = SET_CHOICES.includes(saved) ? saved : GOALS[currentGoal].sets;
+            setsPerExercise = setChoices().includes(saved) ? saved : GOALS[currentGoal].sets;
             document.querySelectorAll('.grid-3 > .mode-card[id^="mode-"]').forEach(c => c.classList.remove('active'));
             const card = document.getElementById(`mode-${currentGoal}`);
             if (card) card.classList.add('active');
@@ -1847,6 +1860,7 @@
                     activeCount++;
                     const m = userMachines[mIdx];
                     const reps = exerciseReps(m);
+                    const sets = exerciseSets(m);
                     const workWeight = exerciseWeight(m);
                     const lvl = m.levelKg || 0;
                     workoutContainer.innerHTML += `
@@ -1867,13 +1881,18 @@
                                     <option value="">Zone (${goal.reps})</option>
                                     ${repTargetChoices().map(r => `<option value="${r}" ${m.repTarget === r ? 'selected' : ''}>${r} reps</option>`).join('')}
                                 </select>
+                                <span style="font-size:0.78rem; color:var(--text-muted);">Sets:</span>
+                                <select onchange="setSetTarget(${mIdx}, this.value)" style="flex:0 0 auto; width:auto; min-width:0; padding:3px 6px; font-size:0.78rem;">
+                                    <option value="">Today (${setsPerExercise})</option>
+                                    ${setChoices().filter(n => n !== setsPerExercise).map(n => `<option value="${n}" ${m.setTarget === n ? 'selected' : ''}>${n} set${n === 1 ? '' : 's'}</option>`).join('')}
+                                </select>
                             </div>
                             ${isLevelled(m) && m.pr > 0 ? `<p style="font-size:0.75rem; color:var(--accent-green); margin-top:6px;">📈 Hold ${reps} reps at ${workWeight} kg and you are on track for a <b>${projectedOneRm(m)} kg</b> 1RM by your final session. Your listed 1RM stays ${m.pr} kg until you retest it.</p>` : ''}
                             <p style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">Enter reps completed per set (target: ${reps}). Going over the target on most sets means the weight is too light — retest your PR.</p>
                             <button class="btn btn-green btn-sm" style="margin-top:8px; width:auto;" onclick="toggleHitTarget(${slotIdx}, ${reps})">✓ Hit all ${reps}</button>
                             <div class="set-inputs">
-                                ${Array.from({length: setsPerExercise}, (_, i) =>
-                                    `<input type="number" placeholder="Set ${i+1}" id="slot_${slotIdx}_s${i+1}" min="0" oninput="checkRepOvershoot(this, ${reps})">`
+                                ${Array.from({length: sets}, (_, i) =>
+                                    `<input type="number" placeholder="Set ${i+1}" id="slot_${slotIdx}_s${i+1}" min="0" oninput="checkRepOvershoot(this, ${reps}); queueDraftSave()">`
                                 ).join('')}
                             </div>
                         </div>`;
@@ -1884,8 +1903,9 @@
             if (activeCount === 0) {
                 workoutContainer.innerHTML = `<p style="color:var(--text-muted); text-align:center; padding:20px; border:1px dashed var(--card-border); border-radius:6px;">Select at least 1 machine in the slots above to display your session log.</p>`;
             }
-            const tab = document.querySelector(`#setsCountTabs [data-sets="${setsPerExercise}"]`);
-            if (tab) { document.querySelectorAll('#setsCountTabs .mode-card').forEach(c => c.classList.remove('active')); tab.classList.add('active'); }
+            document.getElementById('setsCountTabs').innerHTML = setChoices().map(n =>
+                `<div class="mode-card${n === setsPerExercise ? ' active' : ''}" data-sets="${n}" onclick="setSetsCount(${n})" style="padding:5px 14px;"><small>${n} set${n === 1 ? '' : 's'}</small></div>`
+            ).join('');
             renderPersonalBestBanner();
         }
 
@@ -1924,15 +1944,77 @@
         }
 
 
+        // Reps live only in the page until the session is saved, so the Class Overview had
+        // nothing to show mid-lesson. A draft of what has been typed is kept on the student
+        // record instead, written shortly after they stop typing rather than every keystroke.
+        let draftTimer = null;
+        function queueDraftSave() { clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 2000); }
+
+        function saveDraft() {
+            const u = store[currentUser];
+            if (!u) return;
+            const ms = u.machines || [];
+            const machines = [];
+            activeSlots.forEach((mIdx, slotIdx) => {
+                if (mIdx === "" || !ms[mIdx]) return;
+                const m = ms[mIdx];
+                const plannedSets = exerciseSets(m);
+                const sets = Array.from({ length: plannedSets }, (_, i) => {
+                    const el = document.getElementById("slot_" + slotIdx + "_s" + (i + 1));
+                    if (!el || el.value.trim() === "") return null;   // null means not entered yet
+                    return parseInt(el.value) || 0;
+                });
+                if (sets.some(v => v !== null)) machines.push({ name: m.name, targetReps: exerciseReps(m), plannedSets, sets });
+            });
+
+            if (machines.length === 0) {
+                if (u.draft) { delete u.draft; saveStore(); }
+                return;
+            }
+            u.draft = { isoDate: new Date().toISOString().slice(0, 10), goalKey: currentGoal, machines };
+            saveStore();
+        }
+
+        function draftToday(userName) {
+            const d = (store[userName] || {}).draft;
+            return (d && d.isoDate === new Date().toISOString().slice(0, 10)) ? d : null;
+        }
+
+        // "done" = every set filled in, "ongoing" = started but not finished.
+        function machineProgress(draft, machineName) {
+            const e = draft && draft.machines.find(x => x.name === machineName);
+            if (!e) return "none";
+            const filled = e.sets.filter(v => v !== null).length;
+            if (filled === 0) return "none";
+            return filled >= e.plannedSets ? "done" : "ongoing";
+        }
+
+        // Well short of the rep target, or past it on most sets, which the app already reads
+        // as the working weight being too light.
+        function draftConcerns(draft) {
+            if (!draft) return [];
+            const out = [];
+            draft.machines.forEach(e => {
+                const done = e.sets.filter(v => v !== null);
+                if (!done.length) return;
+                const avg = done.reduce((a, b) => a + b, 0) / done.length;
+                const over = done.filter(v => v > e.targetReps).length;
+                if (avg < e.targetReps * 0.7) out.push(e.name + ": averaging " + Math.round(avg) + " of " + e.targetReps + " reps");
+                else if (over >= Math.max(2, done.length - 1)) out.push(e.name + ": over the " + e.targetReps + "-rep target, weight likely too light");
+            });
+            return out;
+        }
+
+
         function toggleHitTarget(slotIdx, targetReps) {
-            const inputs = Array.from({length: setsPerExercise}, (_, i) =>
-                document.getElementById(`slot_${slotIdx}_s${i+1}`)).filter(Boolean);
+            const inputs = [...document.querySelectorAll(`[id^="slot_${slotIdx}_s"]`)];
             const alreadyAllTarget = inputs.every(el => parseInt(el.value) === targetReps);
 
             inputs.forEach(el => {
                 el.value = alreadyAllTarget ? '' : targetReps;
                 checkRepOvershoot(el, targetReps);
             });
+            queueDraftSave();
         }
 
 
@@ -1983,8 +2065,9 @@
                 if (mIdx !== "" && userMachines[mIdx]) {
                     const m = userMachines[mIdx];
                     const targetRepsPerSet = exerciseReps(m);
-                    totalTargetReps += setsPerExercise * targetRepsPerSet;
-                    const rawSets = Array.from({length: setsPerExercise}, (_, i) => {
+                    const plannedSets = exerciseSets(m);
+                    totalTargetReps += plannedSets * targetRepsPerSet;
+                    const rawSets = Array.from({length: plannedSets}, (_, i) => {
                         const el = document.getElementById(`slot_${slotIdx}_s${i+1}`);
                         return el ? (parseInt(el.value) || 0) : 0;
                     });
@@ -1996,12 +2079,12 @@
                     const creditedSets = rawSets.map(r => r > targetRepsPerSet ? 0 : r);
                     const setsOvershot = rawSets.filter(r => r > targetRepsPerSet).length;
 
-                    if (setsOvershot >= Math.max(2, setsPerExercise - 1)) { // overshoot on most/all sets = the PR is very likely stale
+                    if (setsOvershot >= Math.max(2, plannedSets - 1)) { // overshoot on most/all sets = the PR is very likely stale
                         overshootMachines.push({ idx: mIdx, name: m.name });
                     }
 
                     totalAchievedReps += creditedSets.reduce((a, b) => a + b, 0);
-                    machineDetails.push({ name: m.name, weight: exerciseWeight(m), sets: rawSets, overshotSets: setsOvershot, targetReps: targetRepsPerSet, levelKg: m.levelKg || 0 });
+                    machineDetails.push({ name: m.name, weight: exerciseWeight(m), sets: rawSets, overshotSets: setsOvershot, targetReps: targetRepsPerSet, plannedSets, levelKg: m.levelKg || 0 });
                 }
             });
 
@@ -2043,6 +2126,8 @@
 
 
             store[currentUser].history.unshift(sessionData);
+            delete store[currentUser].draft;      // the session is logged, the draft is spent
+            clearTimeout(draftTimer);
             saveStore();
             document.getElementById('rpeSelect').value = '';
             renderHistory();
@@ -2539,12 +2624,29 @@
         }
 
 
+        // Kept fresh while open so the teacher can watch the lesson happen.
+        let classOverviewTimer = null;
+
         function openClassOverview() {
             renderClassOverview();
             document.getElementById('classOverviewModal').classList.add('active');
+            clearInterval(classOverviewTimer);
+            classOverviewTimer = setInterval(refreshClassOverview, 20000);
         }
+
         function closeClassOverview() {
+            clearInterval(classOverviewTimer);
+            classOverviewTimer = null;
             document.getElementById('classOverviewModal').classList.remove('active');
+        }
+
+        async function refreshClassOverview() {
+            if (!document.getElementById('classOverviewModal').classList.contains('active')) {
+                clearInterval(classOverviewTimer);
+                return;
+            }
+            await fetchAllUsersFromCloud();
+            renderClassOverview();
         }
 
 
@@ -2617,20 +2719,27 @@
                 const lastLine = last ? `${last.date} — ${goalLabel(last)}${last.rpe ? ` (RPE ${last.rpe}/5)` : ''}` : 'No sessions logged';
                 const routine = (store[name].routine || []).filter(Boolean);
                 const picked = ((store[name].igcsePicks) || []).length;
+                const draft = draftToday(name);
+                const concerns = draftConcerns(draft);
+                const warn = concerns.length
+                    ? '<span title="' + concerns.join(" | ") + '" style="margin-left:6px; cursor:help;">&#9888;&#65039;</span>'
+                    : '';
+                const doneCount = routine.filter(n => machineProgress(draft, n) === "done").length;
+                const goingCount = routine.filter(n => machineProgress(draft, n) === "ongoing").length;
                 return `<div class="history-item">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <strong>${name}</strong>
+                        <strong>${name}</strong>${warn}
                         ${statusBadge}
                     </div>
                     <p style="font-size:0.85rem; color:var(--text-muted); margin-top:6px;">Last session: ${lastLine}</p>
                     <p style="font-size:0.85rem; margin-top:6px;">
                         🏋️ <b>${hist.length}</b> session${hist.length === 1 ? '' : 's'} logged
                         &nbsp;·&nbsp; 🔧 <b>${routine.length}</b> machine${routine.length === 1 ? '' : 's'} chosen
-                        &nbsp;·&nbsp; 📄 <b style="color:${picked ? 'var(--accent-green)' : 'var(--text-muted)'};">${picked}/${IGCSE_SHEET_SESSIONS}</b> ticked for the sheet
+                        &nbsp;·&nbsp; 📄 <b style="color:${picked ? 'var(--accent-green)' : 'var(--text-muted)'};">${picked}/${IGCSE_SHEET_SESSIONS}</b> ticked for the sheet${draft ? `<br>▶ Today: <b style="color:var(--accent-green);">${doneCount} finished</b>${goingCount ? ` &middot; <b style="color:var(--accent-orange);">${goingCount} in progress</b>` : ``}` : ``}
                     </p>
                     ${routine.length
                         ? `<div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:6px;">${routine.map(n =>
-                            `<span style="font-size:0.72rem; color:var(--text-muted); background:var(--surface-raised); border:1px solid var(--card-border); border-radius:4px; padding:2px 7px; max-width:100%;">${n}</span>`
+                            (() => { const st = machineProgress(draft, n); const tone = st === "done" ? "var(--accent-green)" : st === "ongoing" ? "var(--accent-orange)" : "var(--text-muted)"; const line = st === "none" ? "none" : "underline"; return `<span title="${st === "done" ? "All sets entered" : st === "ongoing" ? "Started, not finished" : "Not started today"}" style="font-size:0.72rem; color:${tone}; text-decoration:${line}; text-underline-offset:2px; background:var(--surface-raised); border:1px solid ${st === "none" ? "var(--card-border)" : tone}; border-radius:4px; padding:2px 7px; max-width:100%;">${n}</span>`; })()
                           ).join('')}</div>`
                         : `<p style="font-size:0.75rem; color:var(--text-muted); margin-top:6px;">No machines chosen yet</p>`}
                 </div>`;
@@ -2710,7 +2819,7 @@
             initUserData(currentUser);
             restoreRoutine();               // bring back the 8 exercises they last used
             restoreFocus();                 // and the training zone they were working on
-            saveStore();
+            saveRoutine();                  // record them, even if the student never touched a slot
 
             renderUserSelector();
             renderMachines();
