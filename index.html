@@ -1870,6 +1870,11 @@
                     const sets = exerciseSets(m);
                     const workWeight = exerciseWeight(m);
                     const lvl = m.levelKg || 0;
+                    const tweaks = [];
+                    if (lvl > 0) tweaks.push(`+${kg(lvl)} kg`);
+                    if (reps !== repsPerExercise) tweaks.push(`${reps} reps`);
+                    if (sets !== setsPerExercise) tweaks.push(`${sets} set${sets === 1 ? '' : 's'}`);
+                    const panelOpen = personalisedOpen.has(mIdx);
                     workoutContainer.innerHTML += `
                         <div class="machine-row">
                             <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -1878,6 +1883,10 @@
                                 </strong>
                                 <span style="color:var(--accent-blue); font-weight:bold;">Target Weight: ${workWeight} kg${lvl > 0 ? ` <span style="color:var(--accent-green);">(+${kg(lvl)})</span>` : ''}</span>
                             </div>
+                            <button class="btn btn-sm" style="margin-top:8px; width:auto; padding:4px 10px; font-size:0.78rem; background:transparent; border:1px solid ${tweaks.length ? 'var(--accent-green)' : 'var(--card-border)'}; color:${tweaks.length ? 'var(--accent-green)' : 'var(--text-muted)'};" onclick="togglePersonalise(${mIdx})">
+                                ⚙️ ${tweaks.length ? 'Personalised: ' + tweaks.join(' · ') : 'Personalise'} ${panelOpen ? '▲' : '▼'}
+                            </button>
+                            ${panelOpen ? `
                             <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:8px; padding:8px; background:rgba(88,166,255,0.06); border:1px solid var(--card-border); border-radius:6px;">
                                 <span style="font-size:0.78rem; color:var(--text-muted);">⬆️ Level up:</span>
                                 ${LEVEL_STEPS.map(s => `<button class="btn btn-sm" style="width:auto; padding:2px 8px; font-size:0.75rem;" onclick="adjustLevelKg(${mIdx}, -${s})">−${kg(s)}</button>`).join('')}
@@ -1893,7 +1902,7 @@
                                     <option value="">Today (${setsPerExercise})</option>
                                     ${setChoices().filter(n => n !== setsPerExercise).map(n => `<option value="${n}" ${m.setTarget === n ? 'selected' : ''}>${n} set${n === 1 ? '' : 's'}</option>`).join('')}
                                 </select>
-                            </div>
+                            </div>` : ''}
                             ${isLevelled(m) && m.pr > 0 ? `<p style="font-size:0.75rem; color:var(--accent-green); margin-top:6px;">📈 Hold ${reps} reps at ${workWeight} kg and you are on track for a <b>${projectedOneRm(m)} kg</b> 1RM by your final session. Your listed 1RM stays ${m.pr} kg until you retest it.</p>` : ''}
                             <p style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">Enter reps completed per set (target: ${reps}). Going over the target on most sets means the weight is too light — retest your PR.</p>
                             <button class="btn btn-green btn-sm" style="margin-top:8px; width:auto;" onclick="toggleHitTarget(${slotIdx}, ${reps})">✓ Hit all ${reps}</button>
@@ -1959,6 +1968,14 @@
         }
 
 
+        // Most students just follow the targets set for the session, so the per-machine
+        // controls stay folded away behind a button rather than sitting on every row.
+        const personalisedOpen = new Set();
+        function togglePersonalise(mIdx) {
+            if (personalisedOpen.has(mIdx)) personalisedOpen.delete(mIdx); else personalisedOpen.add(mIdx);
+            rerenderKeepingReps();
+        }
+
         // Reps live only in the page until the session is saved, so the Class Overview had
         // nothing to show mid-lesson. A draft of what has been typed is kept on the student
         // record instead, written shortly after they stop typing rather than every keystroke.
@@ -2014,8 +2031,8 @@
                 if (!done.length) return;
                 const avg = done.reduce((a, b) => a + b, 0) / done.length;
                 const over = done.filter(v => v > e.targetReps).length;
-                if (avg < e.targetReps * 0.7) out.push(e.name + ": averaging " + Math.round(avg) + " of " + e.targetReps + " reps");
-                else if (over >= Math.max(2, done.length - 1)) out.push(e.name + ": over the " + e.targetReps + "-rep target, weight likely too light");
+                if (avg < e.targetReps * 0.7) out.push({ name: e.name, issue: "only averaging " + Math.round(avg) + " of " + e.targetReps + " reps" });
+                else if (over >= Math.max(2, done.length - 1)) out.push({ name: e.name, issue: "past the " + e.targetReps + "-rep target, weight looks too light" });
             });
             return out;
         }
@@ -2736,8 +2753,10 @@
                 const picked = ((store[name].igcsePicks) || []).length;
                 const draft = draftToday(name);
                 const concerns = draftConcerns(draft);
-                const warn = concerns.length
-                    ? '<span title="' + concerns.join(" | ") + '" style="margin-left:6px; cursor:help;">&#9888;&#65039;</span>'
+                const warn = concerns.length ? ' <span>&#9888;&#65039;</span>' : '';
+                const concernList = concerns.length
+                    ? '<div style="margin-top:6px; font-size:0.78rem; color:var(--accent-orange); line-height:1.5;">' +
+                      concerns.map(c => '&#9888;&#65039; <b>' + c.name + '</b> — ' + c.issue).join('<br>') + '</div>'
                     : '';
                 const doneCount = routine.filter(n => machineProgress(draft, n) === "done").length;
                 const goingCount = routine.filter(n => machineProgress(draft, n) === "ongoing").length;
@@ -2757,6 +2776,7 @@
                             (() => { const st = machineProgress(draft, n); const tone = st === "done" ? "var(--accent-green)" : st === "ongoing" ? "var(--accent-orange)" : "var(--text-muted)"; const line = st === "none" ? "none" : "underline"; return `<span title="${st === "done" ? "All sets entered" : st === "ongoing" ? "Started, not finished" : "Not started today"}" style="font-size:0.72rem; color:${tone}; text-decoration:${line}; text-underline-offset:2px; background:var(--surface-raised); border:1px solid ${st === "none" ? "var(--card-border)" : tone}; border-radius:4px; padding:2px 7px; max-width:100%;">${n}</span>`; })()
                           ).join('')}</div>`
                         : `<p style="font-size:0.75rem; color:var(--text-muted); margin-top:6px;">No machines chosen yet</p>`}
+                    ${concernList}
                 </div>`;
             }).join('');
         }
