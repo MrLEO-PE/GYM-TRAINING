@@ -2044,6 +2044,22 @@
             return filled >= e.plannedSets ? "done" : "ongoing";
         }
 
+        // A machine chosen with no 1RM behind it produces a target weight of 0 kg, so the
+        // student is working to a plan that cannot mean anything. This reads the routine,
+        // not the draft, so it shows before the lesson has even started.
+        function planConcerns(userName) {
+            const u = store[userName] || {};
+            const ms = u.machines || [];
+            const out = [];
+            (u.routine || []).filter(Boolean).forEach(rn => {
+                const m = ms.find(x => x.name === rn);
+                if (!m) return;
+                if (!(m.pr > 0)) out.push({ name: rn, issue: "no 1RM set, so its target weight is 0 kg" });
+                else if (m.verifiedPr == null) out.push({ name: rn, issue: "1RM of " + m.pr + " kg has never been verified" });
+            });
+            return out;
+        }
+
         // Well short of the rep target, or past it on most sets, which the app already reads
         // as the working weight being too light.
         function draftConcerns(draft) {
@@ -2858,7 +2874,7 @@
                 const routine = (store[name].routine || []).filter(Boolean);
                 const picked = ((store[name].igcsePicks) || []).length;
                 const draft = draftToday(name);
-                const concerns = draftConcerns(draft);
+                const concerns = [...planConcerns(name), ...draftConcerns(draft)];
                 const warn = concerns.length ? ' <span>&#9888;&#65039;</span>' : '';
                 const concernList = concerns.length
                     ? '<div style="margin-top:6px; font-size:0.78rem; color:var(--accent-orange); line-height:1.5;">' +
