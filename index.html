@@ -2898,6 +2898,11 @@
                     : '';
                 const doneCount = routine.filter(n => machineProgress(draft, n) === "done").length;
                 const goingCount = routine.filter(n => machineProgress(draft, n) === "ongoing").length;
+                const todayLine = trainedToday
+                    ? `<br>\u2705 <b style="color:var(--accent-green);">Session saved today</b> \u2014 scored ${last.successRate}%`
+                    : draft
+                        ? `<br>\u25b6 Today: <b style="color:var(--accent-green);">${doneCount} finished</b>${goingCount ? ` &middot; <b style="color:var(--accent-orange);">${goingCount} in progress</b>` : ``} &middot; <b style="color:var(--accent-orange);">not saved yet</b>`
+                        : ``;
                 return `<div class="history-item">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <strong>${name}</strong>${warn}
@@ -2907,7 +2912,7 @@
                     <p style="font-size:0.85rem; margin-top:6px;">
                         🏋️ <b>${hist.length}</b> session${hist.length === 1 ? '' : 's'} logged
                         &nbsp;·&nbsp; 🔧 <b>${routine.length}</b> machine${routine.length === 1 ? '' : 's'} chosen
-                        &nbsp;·&nbsp; 📄 <b style="color:${picked ? 'var(--accent-green)' : 'var(--text-muted)'};">${picked}/${IGCSE_SHEET_SESSIONS}</b> ticked for the sheet${draft ? `<br>▶ Today: <b style="color:var(--accent-green);">${doneCount} finished</b>${goingCount ? ` &middot; <b style="color:var(--accent-orange);">${goingCount} in progress</b>` : ``}` : ``}
+                        &nbsp;·&nbsp; 📄 <b style="color:${picked ? 'var(--accent-green)' : 'var(--text-muted)'};">${picked}/${IGCSE_SHEET_SESSIONS}</b> ticked for the sheet${todayLine}
                     </p>
                     ${routine.length
                         ? `<div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:6px;">${routine.map(n =>
