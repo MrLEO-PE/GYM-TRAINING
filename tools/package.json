@@ -1,0 +1,14 @@
+{
+  "name": "gym-tracker-tools",
+  "private": true,
+  "description": "Regenerates the tutorial screenshots and the portfolio case study from the running app.",
+  "type": "module",
+  "scripts": {
+    "shots": "node capture-screenshots.mjs",
+    "case-study": "node build-case-study.mjs",
+    "all": "node capture-screenshots.mjs && node build-case-study.mjs"
+  },
+  "devDependencies": {
+    "puppeteer": "^25.11.0"
+  }
+}
