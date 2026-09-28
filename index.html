@@ -563,8 +563,10 @@
                 <h2>👥 Class Overview</h2>
                 <button class="close-btn" onclick="closeClassOverview()">&times;</button>
             </div>
-            <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:10px;">Pulled from the cloud — click 🔄 Refresh List first if a student was just added on another device.</p>
+            <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:10px;">Pulled from the cloud, and re-read every 20 seconds while this is open.</p>
             <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:10px; margin-bottom:12px; background:var(--surface-sunken); border:1px solid var(--card-border); border-radius:6px;">
+                <button class="btn btn-sm" id="classRefreshBtn" style="width:auto;" onclick="refreshClassOverview(true)">🔄 Refresh now</button>
+                <span id="classUpdatedAt" style="font-size:0.78rem; color:var(--text-muted);"></span>
                 <button class="btn btn-sm" id="classIgcseBtn" style="background:var(--btn-bright-green); color:var(--on-accent);" onclick="downloadClassIgcseLogs()">📄 Download every sheet</button>
                 <span style="font-size:0.78rem; color:var(--text-muted);">One PDF, one page per student, using the sessions each of them ticked.</span>
                 <span id="classIgcseStatus" style="font-size:0.8rem; width:100%;"></span>
@@ -2794,13 +2796,27 @@
             document.getElementById('classOverviewModal').classList.remove('active');
         }
 
-        async function refreshClassOverview() {
+        async function refreshClassOverview(manual) {
             if (!document.getElementById('classOverviewModal').classList.contains('active')) {
                 clearInterval(classOverviewTimer);
                 return;
             }
-            await fetchAllUsersFromCloud();
-            renderClassOverview();
+            const btn = document.getElementById('classRefreshBtn');
+            if (manual && btn) btn.disabled = true;
+            stampClassOverview('Refreshing...');
+            try {
+                await fetchAllUsersFromCloud();
+                renderClassOverview();
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        // Says how old the picture on screen is, so a stale panel is never mistaken for a quiet class.
+        function stampClassOverview(text) {
+            const el = document.getElementById('classUpdatedAt');
+            if (!el) return;
+            el.textContent = text || ('Updated ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
         }
 
 
@@ -2901,6 +2917,7 @@
                     ${concernList}
                 </div>`;
             }).join('');
+            stampClassOverview();
         }
         
         function deleteLogItem(index) {
