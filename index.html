@@ -769,6 +769,7 @@
         // Cloud is treated as the source of truth: students removed elsewhere are purged locally too.
         async function fetchAllUsersFromCloud() {
             try {
+                const versionAtRequest = Object.assign({}, cloudEditVersion);
                 const response = await fetch(`${CLOUD_CONFIG.apiUrl}?select=user_id,data,updated_at`, {
                     method: 'GET',
                     headers: {
@@ -794,7 +795,17 @@
                         if (!cloudUserIds.has(name)) delete store[name];
                     });
 
+                    // A GET and a write for the same user travel on separate connections with no
+                    // ordering between them, so on a slow connection the GET can resolve well after
+                    // a write that started — and finished — entirely inside its round trip, carrying
+                    // an answer that is already stale. Comparing edit versions catches that no matter
+                    // how long either request took: if this user was edited at all while the GET was
+                    // outstanding, the answer is known-stale and is skipped rather than applied, so
+                    // the very edit being saved can never be the thing that reverts it. A different
+                    // device watching that same student (the usual case, since there is no separate
+                    // teacher login) is untouched by this and still gets their live updates.
                     studentRows.forEach(r => {
+                        if ((cloudEditVersion[r.user_id] || 0) !== (versionAtRequest[r.user_id] || 0)) return;
                         if (r.data) store[r.user_id] = mergeUserData(store[r.user_id], r.data);
                         else if (!store[r.user_id]) initUserData(r.user_id);
                     });
@@ -862,8 +873,10 @@
         // silently reverted in the cloud while the badge still said "Cloud Saved".
         let cloudWriteInFlight = false;
         const cloudDirtyUsers = new Set();
+        const cloudEditVersion = {};   // bumped on every local edit queued for a user, never reset
 
         function syncToCloud(userName = currentUser) {
+            cloudEditVersion[userName] = (cloudEditVersion[userName] || 0) + 1;
             cloudDirtyUsers.add(userName);
             if (cloudWriteInFlight) return;
             return drainCloudWrites();
