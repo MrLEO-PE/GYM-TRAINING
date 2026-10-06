@@ -314,7 +314,9 @@
                 <option value="Male">♂ Male</option>
                 <option value="Female">♀ Female</option>
             </select>
+            <button class="btn btn-sm" id="pinBtn" style="width:auto; margin-left:auto; background:transparent; border:1px solid var(--card-border); color:var(--text-main);" onclick="changeMyPin()">🔒 Change PIN</button>
         </div>
+        <p id="pinWarning" style="font-size:0.8rem; color:var(--accent-orange); margin-top:6px; display:none;">🔓 No PIN yet — anyone on this device can open your profile and log sessions as you. Tap <b>Set PIN</b>.</p>
         <div id="machineList" style="margin-top:10px;"></div>
 
         <p style="font-size:0.85rem; color:var(--text-muted); margin-top:16px; margin-bottom:6px;">Add a machine the class uses (appears for everyone). Pick up to 3 muscles it works:</p>
@@ -546,6 +548,25 @@
         </div>
         <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 10px; margin-top:4px;">Review your overall session score percentages.</p>
         <div id="historyList"></div>
+    </div>
+
+
+    <!-- PIN MODAL -->
+    <div class="modal-overlay" id="pinModal">
+        <div class="modal-content" style="max-width:380px;">
+            <div class="modal-header">
+                <h2 id="pinTitle">🔒 PIN</h2>
+            </div>
+            <p id="pinMessage" style="font-size:0.85rem; color:var(--text-muted); margin-bottom:10px;"></p>
+            <input type="password" id="pinInput" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="4" placeholder="4-digit PIN" onkeydown="if(event.key==='Enter')submitPinModal()">
+            <input type="password" id="pinConfirm" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="4" placeholder="Type it again" style="margin-top:8px;" onkeydown="if(event.key==='Enter')submitPinModal()">
+            <p id="pinError" style="font-size:0.8rem; color:var(--danger); margin-top:6px; min-height:1.1em;"></p>
+            <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+                <button class="btn btn-sm btn-green" style="width:auto;" onclick="submitPinModal()">OK</button>
+                <button class="btn btn-sm" style="width:auto; background:transparent; border:1px solid var(--card-border); color:var(--text-main);" onclick="closePinModal(null)">Cancel</button>
+                <button class="btn btn-sm" id="pinTeacher" style="width:auto; margin-left:auto; background:transparent; border:1px solid var(--card-border); color:var(--text-muted);" onclick="pinTeacherUnlock()">Forgot PIN? Teacher</button>
+            </div>
+        </div>
     </div>
 
 
@@ -1298,15 +1319,169 @@
             document.getElementById('currentUserLabel').textContent = currentUser;
             const genderSel = document.getElementById('myGenderSelect');
             if (genderSel) genderSel.value = studentGender(currentUser);
+            renderPinStatus();
+        }
+
+
+        // ---- STUDENT PIN ----
+        // Four digits, chosen by the student, needed to open their profile. Stored only as a
+        // salted hash so it never sits in the shared data as plain digits. With only 10,000
+        // possible PINs this stops a classmate picking someone else's name on a shared tablet,
+        // not a determined attacker — the same limit as the teacher code, since both are
+        // checked in the browser.
+        function hashPin(pin, salt) {
+            const str = salt + ':' + pin;
+            let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+            for (let i = 0; i < str.length; i++) {
+                const ch = str.charCodeAt(i);
+                h1 = Math.imul(h1 ^ ch, 2654435761);
+                h2 = Math.imul(h2 ^ ch, 1597334677);
+            }
+            h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+            h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+            return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
+        }
+        function hasPin(name) { return !!(store[name] && store[name].pinHash); }
+        function checkStudentPin(name, pin) {
+            const u = store[name];
+            return !!(u && u.pinHash) && hashPin(pin, u.pinSalt || '') === u.pinHash;
+        }
+        function setStudentPin(name, pin) {
+            const u = store[name];
+            if (!u) return;
+            u.pinSalt = Math.random().toString(36).slice(2, 10);
+            u.pinHash = hashPin(pin, u.pinSalt);
+            localStorage.setItem('igcse_app_store', JSON.stringify(store));
+            syncToCloud(name);
+        }
+        function clearStudentPin(name) {
+            const u = store[name];
+            if (!u) return;
+            delete u.pinHash;
+            delete u.pinSalt;
+            localStorage.setItem('igcse_app_store', JSON.stringify(store));
+            syncToCloud(name);
+        }
+
+        // One modal serves setting, confirming and checking. Resolves with the PIN typed,
+        // "__teacher__" if the teacher code was used instead, or null if cancelled.
+        let pinModalResolve = null, pinModalValidate = null, pinModalConfirm = false;
+        function openPinModal({ title, message, confirm = false, allowTeacher = false, validate = null }) {
+            return new Promise(resolve => {
+                if (pinModalResolve) pinModalResolve(null);   // never leave an earlier caller hanging
+                pinModalResolve = resolve;
+                pinModalValidate = validate;
+                pinModalConfirm = confirm;
+                document.getElementById('pinTitle').textContent = title;
+                document.getElementById('pinMessage').textContent = message;
+                document.getElementById('pinInput').value = '';
+                document.getElementById('pinConfirm').value = '';
+                document.getElementById('pinConfirm').style.display = confirm ? '' : 'none';
+                document.getElementById('pinTeacher').style.display = allowTeacher ? '' : 'none';
+                document.getElementById('pinError').textContent = '';
+                document.getElementById('pinModal').classList.add('active');
+                setTimeout(() => document.getElementById('pinInput').focus(), 50);
+            });
+        }
+        function closePinModal(result) {
+            document.getElementById('pinModal').classList.remove('active');
+            const resolve = pinModalResolve;
+            pinModalResolve = null;
+            if (resolve) resolve(result);
+        }
+        function submitPinModal() {
+            const pin = document.getElementById('pinInput').value.trim();
+            const again = document.getElementById('pinConfirm').value.trim();
+            const err = document.getElementById('pinError');
+            if (!/^\d{4}$/.test(pin)) { err.textContent = 'The PIN must be exactly 4 numbers.'; return; }
+            if (pinModalConfirm && pin !== again) { err.textContent = 'The two PINs don\'t match.'; return; }
+            const problem = pinModalValidate ? pinModalValidate(pin) : '';
+            if (problem) {
+                err.textContent = problem;
+                document.getElementById('pinInput').value = '';
+                document.getElementById('pinInput').focus();
+                return;
+            }
+            closePinModal(pin);
+        }
+        function pinTeacherUnlock() {
+            if (askTeacherCode('open this profile without the PIN')) closePinModal('__teacher__');
+        }
+
+        // True if the profile may be opened. A forgotten PIN is handled by the teacher, who
+        // can open it with the teacher code and reset it so the student picks a new one.
+        async function unlockStudent(name) {
+            if (!hasPin(name)) return true;
+            const r = await openPinModal({
+                title: `🔒 ${name}`,
+                message: `Enter ${name}'s 4-digit PIN to open this profile.`,
+                allowTeacher: true,
+                validate: pin => checkStudentPin(name, pin) ? '' : 'Wrong PIN — try again.'
+            });
+            if (r === '__teacher__') {
+                if (confirm(`Teacher access granted.\n\nReset ${name}'s PIN so they can choose a new one now?`)) clearStudentPin(name);
+                return true;
+            }
+            return r !== null;
+        }
+
+        // Asked of any student who has no PIN yet, whether brand new or already registered.
+        async function ensurePin(name) {
+            if (!store[name] || hasPin(name)) return;
+            const pin = await openPinModal({
+                title: '🔒 Choose your PIN',
+                message: `${name}, choose a 4-digit PIN. You will need it to open your profile on any device, so nobody else can log sessions as you.`,
+                confirm: true
+            });
+            if (pin && name === currentUser) {
+                setStudentPin(name, pin);
+                showToast('✅ PIN saved.', 2000);
+            }
+            renderPinStatus();
+        }
+
+        async function changeMyPin() {
+            if (hasPin(currentUser)) {
+                const r = await openPinModal({
+                    title: '🔒 Current PIN',
+                    message: 'Enter your current PIN first.',
+                    allowTeacher: true,
+                    validate: pin => checkStudentPin(currentUser, pin) ? '' : 'Wrong PIN — try again.'
+                });
+                if (r === null) return;
+            }
+            const pin = await openPinModal({ title: '🔒 New PIN', message: 'Choose a new 4-digit PIN.', confirm: true });
+            if (!pin) return;
+            setStudentPin(currentUser, pin);
+            showToast('✅ PIN changed.', 2000);
+            renderPinStatus();
+        }
+
+        function renderPinStatus() {
+            const set = hasPin(currentUser);
+            const btn = document.getElementById('pinBtn');
+            const warn = document.getElementById('pinWarning');
+            if (btn) {
+                btn.textContent = set ? '🔒 Change PIN' : '🔓 Set PIN';
+                btn.style.borderColor = set ? 'var(--card-border)' : 'var(--accent-orange)';
+                btn.style.color = set ? 'var(--text-main)' : 'var(--accent-orange)';
+            }
+            if (warn) warn.style.display = set ? 'none' : '';
         }
 
 
         async function switchUser(newUser) {
-            currentUser = newUser;
-            initUserData(currentUser);
-
+            initUserData(newUser);
             showToast(`⏳ Loading ${newUser}'s data...`);
-            await fetchFromCloud(currentUser);
+            await fetchFromCloud(newUser);
+            hideToast();
+
+            if (!(await unlockStudent(newUser))) {
+                renderUserSelector();           // put the dropdown back on whoever was open
+                return;
+            }
+
+            currentUser = newUser;
             reconcileMachines(currentUser); // keep them on the shared class machine list
             restoreRoutine();               // bring back the 8 exercises they last used
             restoreFocus();                 // and the training zone they were working on
@@ -1319,6 +1494,7 @@
             renderHistory();
             renderRestNudge();
             renderLeaderboard();
+            await ensurePin(currentUser);
         }
 
 
@@ -3215,6 +3391,7 @@
             renderRestNudge();
             renderLeaderboard();
             applyMachineSectionDefault();
+            await ensurePin(currentUser);
         }
         
         bootApp();
