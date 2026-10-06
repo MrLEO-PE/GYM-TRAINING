@@ -1409,8 +1409,11 @@
             rerenderKeepingReps();
         }
 
-        function exerciseWeight(m) { return roundToWorkingWeight(m.pr * GOALS[currentGoal].pct) + (m.levelKg || 0); }
-        function isLevelled(m) { return (m.levelKg || 0) > 0 || exerciseReps(m) !== repsPerExercise; }
+        // Floored at 0 here too, as a safety net: a negative adjustment valid in one zone
+        // could otherwise go negative in a lighter zone after switching, since the zones have
+        // different base weights for the same 1RM.
+        function exerciseWeight(m) { return Math.max(0, roundToWorkingWeight(m.pr * GOALS[currentGoal].pct) + (m.levelKg || 0)); }
+        function isLevelled(m) { return (m.levelKg || 0) !== 0 || exerciseReps(m) !== repsPerExercise; }
         // What the levelled load is already worth as a 1RM — the target to aim for at the retest.
         function projectedOneRm(m) { return Math.round(calcEpley(exerciseWeight(m), exerciseReps(m))); }
 
@@ -1429,7 +1432,11 @@
 
         function adjustLevelKg(mIdx, delta) {
             const m = store[currentUser].machines[mIdx];
-            m.levelKg = Math.max(0, Math.round(((m.levelKg || 0) + delta) * 2) / 2);
+            // Can go below the computed target now, not just above it — floored so the total
+            // (base weight + adjustment) never drops under 0 kg for the zone showing right now.
+            const base = roundToWorkingWeight(m.pr * GOALS[currentGoal].pct);
+            const next = Math.round(((m.levelKg || 0) + delta) * 2) / 2;
+            m.levelKg = Math.max(-base, next);
             saveStore();
             rerenderKeepingReps();
         }
@@ -1926,7 +1933,7 @@
                     const workWeight = exerciseWeight(m);
                     const lvl = m.levelKg || 0;
                     const tweaks = [];
-                    if (lvl > 0) tweaks.push(`+${kg(lvl)} kg`);
+                    if (lvl !== 0) tweaks.push(`${lvl > 0 ? '+' : ''}${kg(lvl)} kg`);
                     if (reps !== repsPerExercise) tweaks.push(`${reps} reps`);
                     if (sets !== setsPerExercise) tweaks.push(`${sets} set${sets === 1 ? '' : 's'}`);
                     const panelOpen = personalisedOpen.has(mIdx);
@@ -1936,16 +1943,19 @@
                                 <strong style="font-size:1.1rem; color:var(--text-heading);">${m.name}
                                     <button class="btn btn-sm" style="width:auto; padding:2px 8px; font-size:0.75rem; background:transparent; border:1px solid var(--danger); color:var(--danger); margin-left:6px;" onclick="openSafety(${mIdx})">🛡️ Safety</button>
                                 </strong>
-                                <span style="color:var(--accent-blue); font-weight:bold;">Target Weight: ${workWeight} kg${lvl > 0 ? ` <span style="color:var(--accent-green);">(+${kg(lvl)})</span>` : ''}</span>
+                                <span style="color:var(--accent-blue); font-weight:bold;">Target Weight: ${workWeight} kg
+                                    ${lvl > 0 ? ` <span style="color:var(--accent-green);">(+${kg(lvl)})</span>` : ''}
+                                    ${lvl < 0 ? ` <span style="color:var(--accent-orange);">(${kg(lvl)})</span>` : ''}
+                                </span>
                             </div>
                             <button class="btn btn-sm" style="margin-top:8px; width:auto; padding:4px 10px; font-size:0.78rem; background:transparent; border:1px solid ${tweaks.length ? 'var(--accent-green)' : 'var(--card-border)'}; color:${tweaks.length ? 'var(--accent-green)' : 'var(--text-muted)'};" onclick="togglePersonalise(${mIdx})">
                                 ⚙️ ${tweaks.length ? 'Personalised: ' + tweaks.join(' · ') : 'Personalise'} ${panelOpen ? '▲' : '▼'}
                             </button>
                             ${panelOpen ? `
                             <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:8px; padding:8px; background:rgba(88,166,255,0.06); border:1px solid var(--card-border); border-radius:6px;">
-                                <span style="font-size:0.78rem; color:var(--text-muted);">⬆️ Level up:</span>
+                                <span style="font-size:0.78rem; color:var(--text-muted);">⚖️ Adjust weight:</span>
                                 ${LEVEL_STEPS.map(s => `<button class="btn btn-sm" style="width:auto; padding:2px 8px; font-size:0.75rem;" onclick="adjustLevelKg(${mIdx}, -${s})">−${kg(s)}</button>`).join('')}
-                                <span style="font-size:0.8rem; font-weight:bold; min-width:54px; text-align:center; color:${lvl > 0 ? 'var(--accent-green)' : 'var(--text-muted)'};">${lvl > 0 ? '+' + kg(lvl) : '0'} kg</span>
+                                <span style="font-size:0.8rem; font-weight:bold; min-width:54px; text-align:center; color:${lvl > 0 ? 'var(--accent-green)' : lvl < 0 ? 'var(--accent-orange)' : 'var(--text-muted)'};">${lvl > 0 ? '+' + kg(lvl) : lvl < 0 ? kg(lvl) : '0'} kg</span>
                                 ${[...LEVEL_STEPS].reverse().map(s => `<button class="btn btn-sm" style="width:auto; padding:2px 8px; font-size:0.75rem;" onclick="adjustLevelKg(${mIdx}, ${s})">+${kg(s)}</button>`).join('')}
                                 <span style="font-size:0.78rem; color:var(--text-muted); margin-left:6px;">Reps:</span>
                                 <select onchange="setRepTarget(${mIdx}, this.value)" style="flex:0 0 auto; width:auto; min-width:0; padding:3px 6px; font-size:0.78rem;">
