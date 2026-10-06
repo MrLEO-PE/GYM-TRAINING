@@ -541,6 +541,34 @@
     </div>
 
 
+    <!-- EDIT SESSION MODAL -->
+    <div class="modal-overlay" id="editSessionModal">
+        <div class="modal-content" style="max-width:560px;">
+            <div class="modal-header">
+                <h2>✏️ Edit Logged Session</h2>
+                <button class="close-btn" onclick="closeEditSession()">&times;</button>
+            </div>
+            <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:10px;">Teacher code required. The score recalculates from whatever is saved here.</p>
+            <div class="input-group">
+                <div class="slot-item"><label>Date</label><input type="date" id="editSessionDate"></div>
+                <div class="slot-item">
+                    <label>RPE</label>
+                    <select id="editSessionRpe">
+                        <option value="">-- Skip --</option>
+                        <option value="1">1 — Very Easy</option>
+                        <option value="2">2 — Easy</option>
+                        <option value="3">3 — Moderate</option>
+                        <option value="4">4 — Hard</option>
+                        <option value="5">5 — Maximal</option>
+                    </select>
+                </div>
+            </div>
+            <div id="editSessionMachines" style="margin-top:10px;"></div>
+            <button class="btn btn-green" style="margin-top:14px;" onclick="submitEditSession()">Save Changes</button>
+        </div>
+    </div>
+
+
     <!-- TUTORIAL MODAL -->
     <div class="modal-overlay" id="tutorialModal">
         <div class="modal-content" style="max-width:860px;">
@@ -2370,6 +2398,7 @@
                                     ${isPicked ? 'On IGCSE sheet' : 'Add to sheet'}
                                 </label>
                             </div>
+                            <button class="btn-sm" style="width:auto; padding: 4px 8px; font-size: 0.8rem; background: transparent; border: 1px solid var(--card-border); color:var(--text-main); margin-right:6px;" title="Edit Log (teacher code required)" onclick="openEditSession(${index})">✏️</button>
                             <button class="btn-danger" style="padding: 4px 8px; font-size: 0.8rem; background: transparent; border: 1px solid var(--danger);" title="Delete Log" onclick="deleteLogItem(${index})">🗑️</button>
                         </div>
                         <p style="font-size:0.9rem; margin-top:8px; color:var(--accent-blue);"><b>Focus:</b> ${goalLabel(item)}</p>
@@ -3016,6 +3045,85 @@
             stampClassOverview();
         }
         
+        // A teacher can correct a logged session — a mis-typed rep count, a date entered on
+        // the wrong day — without deleting and asking the student to redo it from memory.
+        // The score is never typed directly; it is always recalculated from whatever is saved
+        // here, using each machine's own stored target, so it cannot drift out of step with
+        // the numbers underneath it the way a free-typed score could.
+        let editSessionIndex = null;
+
+        function openEditSession(index) {
+            const item = store[currentUser].history[index];
+            if (!item) return;
+            if (!askTeacherCode(`edit the session logged on ${item.date}`)) return;
+
+            editSessionIndex = index;
+            document.getElementById('editSessionDate').value = item.isoDate || '';
+            document.getElementById('editSessionRpe').value = item.rpe ? String(item.rpe) : '';
+
+            document.getElementById('editSessionMachines').innerHTML = item.machines.map((m, mi) => `
+                <div class="slot-item" style="margin-top:10px; padding:8px; background:var(--surface-sunken); border:1px solid var(--card-border); border-radius:6px;">
+                    <label>${m.name} — weight (kg)</label>
+                    <input type="number" id="editSessionWeight${mi}" value="${m.weight}" min="0" style="margin-bottom:6px;">
+                    <label>Reps per set (target: ${m.targetReps != null ? m.targetReps : (item.targetReps || '—')})</label>
+                    <div class="set-inputs">
+                        ${m.sets.map((v, si) => `<input type="number" id="editSessionSet${mi}_${si}" value="${v}" min="0">`).join('')}
+                    </div>
+                </div>`).join('');
+
+            document.getElementById('editSessionModal').classList.add('active');
+        }
+
+        function closeEditSession() {
+            editSessionIndex = null;
+            document.getElementById('editSessionModal').classList.remove('active');
+        }
+
+        function submitEditSession() {
+            const item = store[currentUser].history[editSessionIndex];
+            if (!item) return;
+
+            const newIso = document.getElementById('editSessionDate').value;
+            if (newIso) {
+                // Built from the parts rather than `new Date(iso)`, which parses as UTC
+                // midnight and can land on the previous day in a negative UTC offset.
+                const [y, mo, d] = newIso.split('-').map(Number);
+                item.isoDate = newIso;
+                item.date = new Date(y, mo - 1, d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+            }
+            const rpeVal = document.getElementById('editSessionRpe').value;
+            item.rpe = rpeVal ? parseInt(rpeVal) : null;
+
+            let totalTarget = 0, totalAchieved = 0;
+            item.machines.forEach((m, mi) => {
+                const weightEl = document.getElementById(`editSessionWeight${mi}`);
+                if (weightEl) m.weight = parseFloat(weightEl.value) || 0;
+
+                const targetReps = m.targetReps != null ? m.targetReps : (item.targetReps || 0);
+                const newSets = m.sets.map((v, si) => {
+                    const el = document.getElementById(`editSessionSet${mi}_${si}`);
+                    return el ? (parseInt(el.value) || 0) : v;
+                });
+                m.sets = newSets;
+                m.overshotSets = newSets.filter(r => r > targetReps).length;
+
+                const plannedSets = m.plannedSets || newSets.length;
+                totalTarget += plannedSets * targetReps;
+                totalAchieved += newSets.reduce((a, r) => a + (r > targetReps ? 0 : r), 0);
+            });
+
+            item.successRate = totalTarget > 0 ? Math.round((totalAchieved / totalTarget) * 100) : 0;
+
+            store[currentUser].history.sort((a, b) => (b.isoDate || '').localeCompare(a.isoDate || ''));
+            saveStore();
+            closeEditSession();
+            renderHistory();
+            renderRestNudge();
+            renderLeaderboard();
+            renderPersonalBestBanner();
+        }
+
+
         function deleteLogItem(index) {
             const item = store[currentUser].history[index];
             if (!item) return;
