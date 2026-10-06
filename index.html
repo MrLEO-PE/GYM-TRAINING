@@ -495,7 +495,14 @@
     <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
             <h2>4. Leaderboard</h2>
-            <button class="btn btn-sm" style="width:auto; background:transparent; border:1px solid var(--card-border); color:var(--text-main);" onclick="refreshLeaderboard()">🔄 Refresh</button>
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                <div class="grid-3" id="leaderboardGenderTabs" style="grid-template-columns:repeat(3, auto); gap:6px; margin:0;">
+                    <div class="mode-card active" data-gender="all" onclick="setLeaderboardGenderFilter('all')" style="padding:5px 10px;"><small>All</small></div>
+                    <div class="mode-card" data-gender="Male" onclick="setLeaderboardGenderFilter('Male')" style="padding:5px 10px;"><small>♂ Male</small></div>
+                    <div class="mode-card" data-gender="Female" onclick="setLeaderboardGenderFilter('Female')" style="padding:5px 10px;"><small>♀ Female</small></div>
+                </div>
+                <button class="btn btn-sm" style="width:auto; background:transparent; border:1px solid var(--card-border); color:var(--text-main);" onclick="refreshLeaderboard()">🔄 Refresh</button>
+            </div>
         </div>
         <p style="font-size: 0.85rem; color: var(--text-muted); margin-top:4px;">Pulled from the cloud — hit refresh if a classmate's session isn't showing yet.</p>
 
@@ -564,6 +571,14 @@
                 <button class="close-btn" onclick="closeClassOverview()">&times;</button>
             </div>
             <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:10px;">Pulled from the cloud, and re-read every 20 seconds while this is open.</p>
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                <span style="font-size:0.78rem; color:var(--text-muted);">Show:</span>
+                <div class="grid-3" id="classGenderTabs" style="grid-template-columns:repeat(3, auto); gap:6px; margin:0;">
+                    <div class="mode-card active" data-gender="all" onclick="setClassGenderFilter('all')" style="padding:5px 10px;"><small>All</small></div>
+                    <div class="mode-card" data-gender="Male" onclick="setClassGenderFilter('Male')" style="padding:5px 10px;"><small>♂ Male</small></div>
+                    <div class="mode-card" data-gender="Female" onclick="setClassGenderFilter('Female')" style="padding:5px 10px;"><small>♀ Female</small></div>
+                </div>
+            </div>
             <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:10px; margin-bottom:12px; background:var(--surface-sunken); border:1px solid var(--card-border); border-radius:6px;">
                 <button class="btn btn-sm" id="classRefreshBtn" style="width:auto;" onclick="refreshClassOverview(true)">🔄 Refresh now</button>
                 <span id="classUpdatedAt" style="font-size:0.78rem; color:var(--text-muted);"></span>
@@ -728,6 +743,8 @@
         let activeEpleyMachineIdx = null;
         let scorePeriod = 'daily';
         let machineLeaderboardMode = 'strongest';
+        let classGenderFilter = 'all';
+        let leaderboardGenderFilter = 'all';
 
 
         // Guarantees the shape the rest of the app relies on. A record that arrives without
@@ -2388,6 +2405,40 @@
         }
 
 
+        // Gender reuses the field already captured for the IGCSE form rather than adding a
+        // second one, so there is only ever one place it can go out of sync.
+        function studentGender(name) {
+            const u = store[name];
+            return (u && u.igcse && u.igcse.gender) || '';
+        }
+
+        // Settable from Class Overview on behalf of ANY student, not just the one active on
+        // this device, so this must sync that student explicitly rather than through the
+        // default saveStore(), which always pushes whoever is currently logged in here.
+        function setStudentGender(name, value) {
+            if (!store[name]) return;
+            store[name].igcse = store[name].igcse || {};
+            store[name].igcse.gender = value;
+            localStorage.setItem('igcse_app_store', JSON.stringify(store));
+            syncToCloud(name);
+            renderClassOverview();
+        }
+
+        function setClassGenderFilter(g) {
+            classGenderFilter = g;
+            document.querySelectorAll('#classGenderTabs .mode-card').forEach(c => c.classList.remove('active'));
+            document.querySelector(`#classGenderTabs [data-gender="${g}"]`).classList.add('active');
+            renderClassOverview();
+        }
+
+        function setLeaderboardGenderFilter(g) {
+            leaderboardGenderFilter = g;
+            document.querySelectorAll('#leaderboardGenderTabs .mode-card').forEach(c => c.classList.remove('active'));
+            document.querySelector(`#leaderboardGenderTabs [data-gender="${g}"]`).classList.add('active');
+            renderLeaderboard();
+        }
+
+
         function setScorePeriod(period) {
             scorePeriod = period;
             document.querySelectorAll('#scorePeriodTabs .mode-card').forEach(c => c.classList.remove('active'));
@@ -2429,6 +2480,7 @@
             const container = document.getElementById('leaderboardScores');
             const entries = [];
             Object.keys(store).forEach(name => {
+                if (leaderboardGenderFilter !== 'all' && studentGender(name) !== leaderboardGenderFilter) return;
                 const hist = (store[name].history || []).filter(h => isWithinPeriod(h.isoDate, scorePeriod));
                 if (hist.length === 0) return;
                 const best = hist.reduce((a, b) => (b.successRate > a.successRate ? b : a), hist[0]);
@@ -2437,7 +2489,9 @@
 
             if (entries.length === 0) {
                 const periodLabel = { daily: 'today', weekly: 'this week', monthly: 'this month', alltime: 'yet' }[scorePeriod];
-                container.innerHTML = `<p style="color:var(--text-muted); font-size:0.85rem;">No sessions logged ${periodLabel} — be the first!</p>`;
+                container.innerHTML = leaderboardGenderFilter !== 'all'
+                    ? `<p style="color:var(--text-muted); font-size:0.85rem;">No ${leaderboardGenderFilter.toLowerCase()} students have a session logged ${periodLabel}.</p>`
+                    : `<p style="color:var(--text-muted); font-size:0.85rem;">No sessions logged ${periodLabel} — be the first!</p>`;
                 return;
             }
 
@@ -2465,6 +2519,7 @@
             const byMachine = {};
 
             Object.keys(store).forEach(name => {
+                if (leaderboardGenderFilter !== 'all' && studentGender(name) !== leaderboardGenderFilter) return;
                 (store[name].machines || []).forEach(m => {
                     if (!m.pr || m.pr <= 0) return;
                     const key = m.name.trim().toLowerCase();
@@ -2493,9 +2548,10 @@
             const rows = Object.values(byMachine).sort((a, b) => a.name.localeCompare(b.name));
 
             if (rows.length === 0) {
+                const filterNote = leaderboardGenderFilter !== 'all' ? ` for ${leaderboardGenderFilter.toLowerCase()} students` : '';
                 container.innerHTML = machineLeaderboardMode === 'strongest'
-                    ? `<p style="color:var(--text-muted); font-size:0.85rem;">No machines logged yet.</p>`
-                    : `<p style="color:var(--text-muted); font-size:0.85rem;">No improvement to show yet — PRs need at least two recorded values (e.g. retest with the Epley table) to measure a gain.</p>`;
+                    ? `<p style="color:var(--text-muted); font-size:0.85rem;">No machines logged yet${filterNote}.</p>`
+                    : `<p style="color:var(--text-muted); font-size:0.85rem;">No improvement to show yet${filterNote} — PRs need at least two recorded values (e.g. retest with the Epley table) to measure a gain.</p>`;
                 return;
             }
 
@@ -2892,7 +2948,13 @@
                 return;
             }
 
-            container.innerHTML = names.map(name => {
+            const shownNames = classGenderFilter === 'all' ? names : names.filter(n => studentGender(n) === classGenderFilter);
+            if (shownNames.length === 0) {
+                container.innerHTML = `<p style="color:var(--text-muted);">No ${classGenderFilter.toLowerCase()} students yet — set a student's gender below, or switch back to All.</p>`;
+                return;
+            }
+
+            container.innerHTML = shownNames.map(name => {
                 const hist = store[name].history || [];
                 const last = hist[0];
                 const trainedToday = last && last.isoDate === todayStr;
@@ -2921,7 +2983,13 @@
                         <strong>${name}</strong>${warn}
                         ${statusBadge}
                     </div>
-                    <p style="font-size:0.85rem; color:var(--text-muted); margin-top:6px;">Last session: ${lastLine}</p>
+                    <p style="font-size:0.85rem; color:var(--text-muted); margin-top:6px;">Last session: ${lastLine}
+                        &nbsp;·&nbsp; <select onchange="setStudentGender('${name.replace(/'/g, "\\'")}', this.value)" style="width:auto; min-width:0; display:inline-block; padding:1px 4px; font-size:0.78rem;">
+                            <option value="" ${!studentGender(name) ? 'selected' : ''}>Gender: --</option>
+                            <option value="Male" ${studentGender(name) === 'Male' ? 'selected' : ''}>♂ Male</option>
+                            <option value="Female" ${studentGender(name) === 'Female' ? 'selected' : ''}>♀ Female</option>
+                        </select>
+                    </p>
                     <p style="font-size:0.85rem; margin-top:6px;">
                         🏋️ <b>${hist.length}</b> session${hist.length === 1 ? '' : 's'} logged
                         &nbsp;·&nbsp; 🔧 <b>${routine.length}</b> machine${routine.length === 1 ? '' : 's'} chosen
