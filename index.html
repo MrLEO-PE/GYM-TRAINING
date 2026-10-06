@@ -307,6 +307,14 @@
         <p id="machineSummary" style="font-size:0.85rem; color:var(--text-muted); margin-top:6px; display:none; cursor:pointer;" onclick="toggleMachineSection()"></p>
         <div id="machineSectionBody">
         <p style="font-size: 0.85rem; color: var(--text-muted); margin-top:4px;">These machines are shared by the whole class. Enter <b>your own</b> 1RM for each, then tap Verify. <b id="currentUserLabel" style="color:var(--text-heading);"></b></p>
+        <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+            <span style="font-size:0.85rem; color:var(--text-muted);">Your gender (for the IGCSE form):</span>
+            <select id="myGenderSelect" onchange="setStudentGender(currentUser, this.value)" style="width:auto; min-width:0; padding:3px 6px; font-size:0.82rem;">
+                <option value="">-- Not set --</option>
+                <option value="Male">♂ Male</option>
+                <option value="Female">♀ Female</option>
+            </select>
+        </div>
         <div id="machineList" style="margin-top:10px;"></div>
 
         <p style="font-size:0.85rem; color:var(--text-muted); margin-top:16px; margin-bottom:6px;">Add a machine the class uses (appears for everyone). Pick up to 3 muscles it works:</p>
@@ -1288,6 +1296,8 @@
                 select.appendChild(opt);
             });
             document.getElementById('currentUserLabel').textContent = currentUser;
+            const genderSel = document.getElementById('myGenderSelect');
+            if (genderSel) genderSel.value = studentGender(currentUser);
         }
 
 
