@@ -43,11 +43,6 @@ await new Promise(r => setTimeout(r, 1800));
 
 // A believable student, so the pictures show a real screen rather than empty fields.
 await page.evaluate(() => {
-  // The app asks a student with no PIN to choose one on startup; give this one a PIN and
-  // close that prompt, or it sits over every picture and the "no PIN" warning shows in section 1.
-  setStudentPin(currentUser, '1234');
-  closePinModal(null);
-  renderPinStatus();
   const u = store[currentUser];
   u.machines.forEach((m, i) => {
     m.pr = [60, 45, 80, 50, 40][i] || 50;
