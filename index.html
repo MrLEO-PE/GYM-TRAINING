@@ -793,27 +793,144 @@
             });
         }
 
-        // The cloud copy replaces the local one whenever the app loads. A cloud record that
-        // was missing a field used to wipe the local one with it, taking a student's logged
-        // sessions down with it, so a field is only taken from the cloud when the cloud
-        // actually holds something. Sessions are only ever added, never removed, so when the
-        // two disagree the longer history is the safer one to keep.
-        function mergeUserData(local, cloud) {
-            const merged = normaliseUserData(cloud);
-            if (!local) return merged;
-            const mine = normaliseUserData(local);
+        // ---- MERGING A DEVICE'S COPY WITH THE CLOUD'S ----
+        // Every device keeps, per student, the last copy it saw in the cloud (the "base").
+        // Comparing both sides against that base tells who changed what since: anything this
+        // device changed wins, anything changed elsewhere is taken from the cloud, a session
+        // missing on one side was deleted there. Before this, the whole record of whichever
+        // device saved last won, so a teacher's deletion came back from a tablet's old copy,
+        // a correction was undone by a tablet still open, and a 1RM verified offline reverted.
 
-            // Anything the cloud copy simply does not carry is kept from the device. Doing this
-            // by field name meant every new setting had to be remembered here, and one that was
-            // forgotten would vanish whenever the cloud record happened to be older.
-            Object.keys(mine).forEach(k => {
-                if (merged[k] === undefined || merged[k] === null) merged[k] = mine[k];
+        // Key order differs once the cloud has stored a record, so compare by content.
+        function canon(v) {
+            if (Array.isArray(v)) return '[' + v.map(canon).join(',') + ']';
+            if (v && typeof v === 'object') return '{' + Object.keys(v).filter(k => v[k] !== undefined).sort()
+                .map(k => JSON.stringify(k) + ':' + canon(v[k])).join(',') + '}';
+            return v === undefined ? 'undefined' : JSON.stringify(v);
+        }
+        function sameData(a, b) { return canon(a) === canon(b); }
+        function isPlainObject(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+        function clone(v) { return v === undefined ? undefined : JSON.parse(JSON.stringify(v)); }
+
+        function merge3(base, mine, theirs, key) {
+            if (key === 'prHistory') return mergeEntries(base, mine, theirs);
+            if (sameData(mine, base)) return theirs;
+            if (sameData(theirs, base)) return mine;
+            if (isPlainObject(mine) && isPlainObject(theirs)) return mergeObjects(isPlainObject(base) ? base : {}, mine, theirs);
+            return mine;   // both changed the same value: this device's change is the one being saved now
+        }
+
+        function mergeObjects(base, mine, theirs, special) {
+            const out = {};
+            new Set([...Object.keys(theirs), ...Object.keys(mine), ...Object.keys(base)]).forEach(k => {
+                const v = special && special[k] ? special[k](base[k], mine[k], theirs[k]) : merge3(base[k], mine[k], theirs[k], k);
+                if (v !== undefined) out[k] = v;
             });
+            return out;
+        }
 
-            if (mine.history.length > merged.history.length) merged.history = mine.history;
-            if (merged.machines.length === 0) merged.machines = mine.machines;
-            if (merged.archivedMachines.length === 0) merged.archivedMachines = mine.archivedMachines;
+        // Lists whose items have their own identity (sessions by id, machines by name).
+        function mergeKeyed(base, mine, theirs, keyOf, sameItem) {
+            const toMap = arr => {
+                const m = new Map();
+                (Array.isArray(arr) ? arr : []).forEach(x => { const k = keyOf(x); if (k && !m.has(k)) m.set(k, x); });
+                return m;
+            };
+            const B = toMap(base), L = toMap(mine), C = toMap(theirs);
+            const out = [];
+            [...C.keys(), ...[...L.keys()].filter(k => !C.has(k))].forEach(k => {
+                if (B.has(k) && (!L.has(k) || !C.has(k))) return;              // deleted on one side
+                if (!C.has(k)) {
+                    // New on this device. Skip it if the cloud already holds the same item under
+                    // another key (an old session given a different id by each device).
+                    if (sameItem && [...C.values()].some(c => sameItem(c, L.get(k)))) return;
+                    out.push(L.get(k));
+                } else if (!L.has(k)) out.push(C.get(k));
+                else out.push(merge3(B.get(k), L.get(k), C.get(k)));
+            });
+            return out;
+        }
+
+        // A 1RM's test log: keep every test either side added, drop only what one side removed.
+        function mergeEntries(base, mine, theirs) {
+            const arr = v => Array.isArray(v) ? v : [];
+            const B = new Set(arr(base).map(canon)), L = new Set(arr(mine).map(canon));
+            const out = arr(theirs).filter(e => !(B.has(canon(e)) && !L.has(canon(e))));
+            const have = new Set(out.map(canon));
+            arr(mine).forEach(e => { const k = canon(e); if (!B.has(k) && !have.has(k)) { out.push(e); have.add(k); } });
+            return out.sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+        }
+
+        const machineKey = m => m && m.name ? m.name.trim().toLowerCase() : null;
+        const sessionKey = s => s && s.id;
+        const sameSessionIgnoringId = (a, b) => sameData(Object.assign({}, a, { id: null }), Object.assign({}, b, { id: null }));
+
+        function sortHistory(hist) {
+            return hist.slice().sort((a, b) =>
+                String(b.isoDate || '').localeCompare(String(a.isoDate || '')) || (b.savedAt || 0) - (a.savedAt || 0));
+        }
+
+        function mergeUserData(local, cloud, base) {
+            const theirs = normaliseUserData(cloud);
+            if (!local) return theirs;
+            const mine = normaliseUserData(local);
+            let merged;
+            if (base) {
+                merged = mergeObjects(normaliseUserData(base), mine, theirs, {
+                    history: (b, l, c) => mergeKeyed(b, l, c, sessionKey, sameSessionIgnoringId),
+                    machines: (b, l, c) => mergeKeyed(b, l, c, machineKey),
+                    archivedMachines: (b, l, c) => mergeKeyed(b, l, c, machineKey)
+                });
+            } else {
+                // No base yet (first sync on this device): the cloud wins, nothing it lacks is
+                // dropped, and no session on either side is lost.
+                merged = Object.assign({}, theirs);
+                Object.keys(mine).forEach(k => { if (merged[k] === undefined || merged[k] === null) merged[k] = mine[k]; });
+                merged.history = mergeKeyed([], mine.history, theirs.history, sessionKey, sameSessionIgnoringId);
+                if (theirs.machines.length === 0) merged.machines = mine.machines;
+                if (theirs.archivedMachines.length === 0) merged.archivedMachines = mine.archivedMachines;
+            }
+            merged = normaliseUserData(merged);
+            merged.history = sortHistory(merged.history);
             return merged;
+        }
+
+        // The base each device keeps, and the students whose changes have not reached the cloud.
+        // Both survive a reload, so nothing typed offline depends on the tab staying open.
+        function readStored(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch (e) { return fallback; } }
+        const cloudBase = readStored('igcse_cloud_base', {});
+        const pendingUsers = new Set(readStored('igcse_pending', []));
+        function saveCloudBase() { localStorage.setItem('igcse_cloud_base', JSON.stringify(cloudBase)); }
+        function savePending() { localStorage.setItem('igcse_pending', JSON.stringify([...pendingUsers])); }
+
+        // Sessions from before ids existed get one worked out from their content, so every
+        // device gives the same old session the same id instead of a random one each.
+        function contentId(s) {
+            const str = canon(Object.assign({}, s, { id: null }));
+            let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+            for (let i = 0; i < str.length; i++) {
+                const ch = str.charCodeAt(i);
+                h1 = Math.imul(h1 ^ ch, 2654435761);
+                h2 = Math.imul(h2 ^ ch, 1597334677);
+            }
+            h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+            h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+            return 'L' + (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+        }
+        function withSessionIds(data) {
+            const d = normaliseUserData(data);
+            d.history = d.history.map(s => s && !s.id ? Object.assign({}, s, { id: contentId(s) }) : s);
+            return d;
+        }
+
+        // Takes one cloud row into this device. Returns true when this device holds changes
+        // the cloud does not have yet, so the caller knows to send them.
+        function applyCloudRow(userName, data) {
+            const cloudData = withSessionIds(data);
+            const before = store[userName];
+            store[userName] = before ? mergeUserData(before, cloudData, cloudBase[userName]) : cloudData;
+            cloudBase[userName] = clone(cloudData);
+            return !sameData(store[userName], cloudData);
         }
 
 
@@ -822,6 +939,7 @@
         async function fetchAllUsersFromCloud() {
             try {
                 const versionAtRequest = Object.assign({}, cloudEditVersion);
+                const writeAtRequest = cloudWriteActiveFor;
                 const response = await fetch(`${CLOUD_CONFIG.apiUrl}?select=user_id,data,updated_at`, {
                     method: 'GET',
                     headers: {
@@ -842,25 +960,37 @@
                     const studentRows = rows.filter(r => r.user_id !== MACHINES_KEY);
                     const cloudUserIds = new Set(studentRows.map(r => r.user_id));
 
-                    // Remove any locally-cached student that no longer exists in the cloud
+                    // A student missing from the cloud was deleted there only if this device has
+                    // seen them in the cloud before. One it has never seen there was created on
+                    // this device and has not been uploaded yet (wifi down), so it is kept and sent.
+                    // On a device's first full read with this version there is no record yet of
+                    // who it has seen in the cloud, so it trusts the cloud's list, as before.
+                    const firstSync = localStorage.getItem('igcse_synced_once') === null;
                     Object.keys(store).forEach(name => {
-                        if (!cloudUserIds.has(name)) delete store[name];
+                        if (cloudUserIds.has(name)) return;
+                        if (cloudBase[name] || (firstSync && !pendingUsers.has(name))) {
+                            delete store[name];
+                            delete cloudBase[name];
+                            pendingUsers.delete(name);
+                        } else {
+                            pendingUsers.add(name);
+                        }
                     });
 
                     // A GET and a write for the same user travel on separate connections with no
-                    // ordering between them, so on a slow connection the GET can resolve well after
-                    // a write that started — and finished — entirely inside its round trip, carrying
-                    // an answer that is already stale. Comparing edit versions catches that no matter
-                    // how long either request took: if this user was edited at all while the GET was
-                    // outstanding, the answer is known-stale and is skipped rather than applied, so
-                    // the very edit being saved can never be the thing that reverts it. A different
-                    // device watching that same student (the usual case, since there is no separate
-                    // teacher login) is untouched by this and still gets their live updates.
+                    // ordering between them, so the GET can return after a write that started and
+                    // finished inside its round trip, carrying an answer that is already stale. Any
+                    // edit or completed write for this user while the GET was out marks it stale,
+                    // and it is skipped rather than applied.
                     studentRows.forEach(r => {
+                        if (r.user_id === writeAtRequest) return;
                         if ((cloudEditVersion[r.user_id] || 0) !== (versionAtRequest[r.user_id] || 0)) return;
-                        if (r.data) store[r.user_id] = mergeUserData(store[r.user_id], r.data);
+                        if (r.data) { if (applyCloudRow(r.user_id, r.data)) pendingUsers.add(r.user_id); }
                         else if (!store[r.user_id]) initUserData(r.user_id);
                     });
+                    saveCloudBase();
+                    savePending();
+                    localStorage.setItem('igcse_synced_once', '1');
 
                     // If the active user got purged, fall back to whoever remains
                     if (!store[currentUser]) {
@@ -874,6 +1004,7 @@
                     Object.keys(store).forEach(name => reconcileMachines(name));
 
                     localStorage.setItem('igcse_app_store', JSON.stringify(store));
+                    retryPendingSaves();
                 }
             } catch (err) {
                 console.error("Could not fetch user list:", err);
@@ -888,7 +1019,11 @@
             try {
                 statusBadge.className = "cloud-badge cloud-syncing";
                 statusBadge.textContent = "🔄 Fetching Database...";
-                
+
+                // Same staleness guard as the whole-class fetch: swapping to a partner and straight
+                // back while a save is still travelling must not pull the pre-save copy over it.
+                const versionAtRequest = cloudEditVersion[userName] || 0;
+                const writeAtRequest = cloudWriteActiveFor;
                 const response = await fetch(`${CLOUD_CONFIG.apiUrl}?user_id=eq.${encodeURIComponent(userName)}`, {
                     method: 'GET',
                     headers: {
@@ -900,10 +1035,17 @@
 
                 if (response.ok) {
                     const data = await response.json();
-                    if (data && data.length > 0) {
-                        store[userName] = mergeUserData(store[userName], data[0].data);
+                    const stale = writeAtRequest === userName || (cloudEditVersion[userName] || 0) !== versionAtRequest;
+                    if (data && data.length > 0 && data[0].data && !stale) {
+                        if (applyCloudRow(userName, data[0].data)) pendingUsers.add(userName);
+                        saveCloudBase();
+                        savePending();
                         localStorage.setItem('igcse_app_store', JSON.stringify(store));
+                    } else if (data && data.length === 0 && store[userName] && !cloudBase[userName]) {
+                        pendingUsers.add(userName);   // created on this device, never uploaded
+                        savePending();
                     }
+                    if (pendingUsers.has(userName)) retryPendingSaves();
                     statusBadge.className = "cloud-badge cloud-on";
                     statusBadge.textContent = "🟢 Cloud Synced";
                 } else {
@@ -924,15 +1066,30 @@
         // write land after a newer one and overwrite it, so a student's machine choice
         // silently reverted in the cloud while the badge still said "Cloud Saved".
         let cloudWriteInFlight = false;
+        let cloudWriteActiveFor = null;   // the student whose write is travelling right now
         const cloudDirtyUsers = new Set();
-        const cloudEditVersion = {};   // bumped on every local edit queued for a user, never reset
+        const cloudEditVersion = {};   // bumped on every local edit and every completed write, never reset
 
         function syncToCloud(userName = currentUser) {
             cloudEditVersion[userName] = (cloudEditVersion[userName] || 0) + 1;
             cloudDirtyUsers.add(userName);
+            pendingUsers.add(userName);   // remembered across a reload until the cloud confirms it
+            savePending();
             if (cloudWriteInFlight) return;
             return drainCloudWrites();
         }
+
+        // A save that failed is tried again on its own: when the device reports the wifi is
+        // back, every 20 seconds while anything is waiting, and every time the app loads.
+        let retryTimer = null;
+        function retryPendingSaves() {
+            clearTimeout(retryTimer);
+            retryTimer = null;
+            [...pendingUsers].forEach(u => { if (store[u]) cloudDirtyUsers.add(u); else pendingUsers.delete(u); });
+            savePending();
+            if (!cloudWriteInFlight && cloudDirtyUsers.size) drainCloudWrites();
+        }
+        window.addEventListener('online', retryPendingSaves);
 
         async function drainCloudWrites() {
             cloudWriteInFlight = true;
@@ -940,48 +1097,109 @@
                 while (cloudDirtyUsers.size) {
                     const user = cloudDirtyUsers.values().next().value;
                     cloudDirtyUsers.delete(user);
-                    if (store[user]) await pushUserToCloud(user);   // always sends that user's latest state
+                    if (!store[user]) continue;
+                    cloudWriteActiveFor = user;
+                    try { await pushUserToCloud(user); }   // always sends that user's latest state
+                    finally {
+                        cloudWriteActiveFor = null;
+                        cloudEditVersion[user] = (cloudEditVersion[user] || 0) + 1;
+                    }
                 }
             } finally {
                 cloudWriteInFlight = false;
             }
+            if (pendingUsers.size && !retryTimer) retryTimer = setTimeout(retryPendingSaves, 20000);
         }
 
+        // Reads the cloud copy first and merges it in, so a change made on another device
+        // since this one last looked (a teacher's correction, a deleted session) is kept
+        // instead of being overwritten by this device's older copy.
         async function pushUserToCloud(userName) {
             const statusBadge = document.getElementById('cloudStatus');
+            const headers = { 'apikey': CLOUD_CONFIG.apiKey, 'Authorization': `Bearer ${CLOUD_CONFIG.apiKey}` };
             try {
                 statusBadge.className = "cloud-badge cloud-syncing";
                 statusBadge.textContent = "🔄 Saving...";
 
+                const userFilter = `user_id=eq.${encodeURIComponent(userName)}`;
+                let sent = null, response = null;
+                // The write only lands if nobody else wrote this student since the read; if
+                // someone did (two devices saving the same second), read and merge again.
+                for (let attempt = 0; attempt < 4 && !sent; attempt++) {
+                    const current = await fetch(`${CLOUD_CONFIG.apiUrl}?${userFilter}&select=user_id,data,updated_at`, { method: 'GET', headers });
+                    if (!current.ok) throw new Error(`Read before save failed (${current.status}): ${await current.text()}`);
+                    const rows = await current.json();
+                    if (!store[userName]) return;
+                    const row = rows.length ? rows[0] : null;
+                    if (row && row.data) {
+                        const before = store[userName];
+                        applyCloudRow(userName, row.data);
+                        reconcileMachines(userName);
+                        localStorage.setItem('igcse_app_store', JSON.stringify(store));
+                        saveCloudBase();
+                        if (userName === currentUser && !sameData(before, store[userName])) showMergedChanges(before, store[userName]);
+                    } else if (!row && cloudBase[userName]) {
+                        // Deleted in the cloud (by the teacher) since this device last looked: do not
+                        // bring the student back. The next class refresh removes them here too.
+                        pendingUsers.delete(userName);
+                        savePending();
+                        return;
+                    }
 
-                const response = await fetch(`${CLOUD_CONFIG.apiUrl}?on_conflict=user_id`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'apikey': CLOUD_CONFIG.apiKey,
-                        'Authorization': `Bearer ${CLOUD_CONFIG.apiKey}`,
-                        'Prefer': 'resolution=merge-duplicates'
-                    },
-                    body: JSON.stringify({
-                        user_id: userName,
-                        data: store[userName],
-                        updated_at: new Date().toISOString()
-                    })
-                });
+                    const body = clone(store[userName]);
+                    const payload = JSON.stringify({ user_id: userName, data: body, updated_at: new Date().toISOString() });
+                    if (row && attempt < 3) {   // the last attempt writes plainly, so a save never stalls
+                        const unchangedSince = row.updated_at ? `updated_at=eq.${encodeURIComponent(row.updated_at)}` : 'updated_at=is.null';
+                        response = await fetch(`${CLOUD_CONFIG.apiUrl}?${userFilter}&${unchangedSince}`, {
+                            method: 'PATCH',
+                            headers: Object.assign({ 'Content-Type': 'application/json', 'Prefer': 'return=representation' }, headers),
+                            body: payload
+                        });
+                        if (response.ok) {
+                            const written = await response.json();
+                            if (Array.isArray(written) && written.length) sent = body;
+                            continue;   // nothing matched: someone else wrote first
+                        }
+                        // A refused conditional write must not stop the student saving at all;
+                        // fall through to the plain write used before.
+                    }
+                    response = await fetch(`${CLOUD_CONFIG.apiUrl}?on_conflict=user_id`, {
+                        method: 'POST',
+                        headers: Object.assign({ 'Content-Type': 'application/json', 'Prefer': 'resolution=merge-duplicates' }, headers),
+                        body: payload
+                    });
+                    if (response.ok) sent = body;
+                    else break;
+                }
 
 
-                if (response.ok) {
+                if (sent) {
+                    cloudBase[userName] = clone(sent);
+                    saveCloudBase();
+                    if (!store[userName] || sameData(store[userName], sent)) { pendingUsers.delete(userName); savePending(); }
                     statusBadge.className = "cloud-badge cloud-on";
-                    statusBadge.textContent = "🟢 Cloud Saved";
+                    statusBadge.textContent = pendingUsers.size ? "🔄 Saving..." : "🟢 Cloud Saved";
+                    statusBadge.title = '';
                 } else {
-                    const errText = await response.text();
-                    throw new Error(`Sync failed (${response.status}): ${errText}`);
+                    const errText = response && !response.bodyUsed ? await response.text() : 'other devices kept saving first';
+                    throw new Error(`Sync failed (${response ? response.status : '-'}): ${errText}`);
                 }
             } catch (err) {
                 console.error(err);
                 statusBadge.className = "cloud-badge cloud-off";
-                statusBadge.textContent = "🟡 Saved Locally Only";
+                statusBadge.textContent = "🟡 Not in the cloud yet — retrying";
                 statusBadge.title = err.message;
+            }
+        }
+
+        // A save that pulled in someone else's change (the teacher's correction, a deletion)
+        // redraws what changed, without wiping reps being typed.
+        function showMergedChanges(before, after) {
+            if (!sameData(before.history, after.history)) { renderHistory(); renderRestNudge(); renderPersonalBestBanner(); }
+            if (!sameData(before.igcse, after.igcse)) renderGenderTicks();
+            if (!sameData(before.machines, after.machines) || !sameData(before.routine, after.routine)) {
+                restoreRoutine();
+                renderMachines();
             }
         }
 
@@ -1000,8 +1218,11 @@
             // Archive anything no longer on the shared list
             const stillActive = [];
             u.machines.forEach(m => {
-                if (sharedNames.has(m.name.trim().toLowerCase())) stillActive.push(m);
-                else u.archivedMachines.push(m);
+                const key = m.name.trim().toLowerCase();
+                if (sharedNames.has(key)) { stillActive.push(m); return; }
+                // One archived copy per machine: the one being archived now is the newest.
+                u.archivedMachines = u.archivedMachines.filter(a => a.name.trim().toLowerCase() !== key);
+                u.archivedMachines.push(m);
             });
             u.machines = stillActive;
 
@@ -1317,6 +1538,7 @@
 
 
         async function switchUser(newUser) {
+            flushDraft();   // the reps the previous student just typed, before their screen goes
             initUserData(newUser);
             showToast(`⏳ Loading ${newUser}'s data...`);
             await fetchFromCloud(newUser);
@@ -1352,7 +1574,12 @@
             if (!confirm(`Are you sure? This will permanently delete "${userName}" and all their data, locally and in the cloud.`)) return;
 
             delete store[userName];
+            delete cloudBase[userName];
+            pendingUsers.delete(userName);
+            cloudDirtyUsers.delete(userName);
             localStorage.setItem('igcse_app_store', JSON.stringify(store));
+            saveCloudBase();
+            savePending();
 
             try {
                 const response = await fetch(`${CLOUD_CONFIG.apiUrl}?user_id=eq.${encodeURIComponent(userName)}`, {
@@ -1976,7 +2203,21 @@
                     : '');
 
 
+            // Whatever is typed in the boxes survives the redraw. If the boxes on screen belong to
+            // someone else (the partner just swapped profiles) or the page has just loaded, the
+            // reps come back from this student's saved draft for today instead.
+            const typedReps = {};
+            const showingThisStudent = workoutContainer.dataset.user === currentUser;
+            if (showingThisStudent) {
+                workoutContainer.querySelectorAll('input[data-midx]').forEach(el => {
+                    const name = (userMachines[el.dataset.midx] || {}).name;
+                    if (name) (typedReps[name] = typedReps[name] || [])[el.dataset.set] = el.value;
+                });
+            }
+            const draft = draftToday(currentUser);
+
             workoutContainer.innerHTML = '';
+            workoutContainer.dataset.user = currentUser;
             let activeCount = 0;
             activeSlots.forEach((mIdx, slotIdx) => {
                 if (mIdx !== "" && userMachines[mIdx]) {
@@ -2027,13 +2268,28 @@
                             <button class="btn btn-green btn-sm" style="margin-top:8px; width:auto;" onclick="toggleHitTarget(${slotIdx}, ${reps})">✓ Hit all ${reps}</button>
                             <div class="set-inputs">
                                 ${Array.from({length: sets}, (_, i) =>
-                                    `<input type="number" placeholder="Set ${i+1}" id="slot_${slotIdx}_s${i+1}" min="0" oninput="checkRepOvershoot(this, ${reps}); queueDraftSave()">`
+                                    `<input type="number" placeholder="Set ${i+1}" id="slot_${slotIdx}_s${i+1}" data-midx="${mIdx}" data-set="${i}" min="0" oninput="checkRepOvershoot(this, ${reps}); queueDraftSave()">`
                                 ).join('')}
                             </div>
                         </div>`;
                 }
             });
 
+
+            workoutContainer.querySelectorAll('input[data-midx]').forEach(el => {
+                const m = userMachines[el.dataset.midx];
+                if (!m) return;
+                const i = Number(el.dataset.set);
+                let v = '';
+                if (typedReps[m.name]) v = typedReps[m.name][i] || '';
+                else if (draft) {
+                    const e = draft.machines.find(x => x.name === m.name);
+                    if (e && e.sets[i] !== null && e.sets[i] !== undefined) v = String(e.sets[i]);
+                }
+                if (v === '') return;
+                el.value = v;
+                checkRepOvershoot(el, exerciseReps(m));
+            });
 
             if (activeCount === 0) {
                 workoutContainer.innerHTML = `<p style="color:var(--text-muted); text-align:center; padding:20px; border:1px dashed var(--card-border); border-radius:6px;">Select at least 1 machine in the slots above to display your session log.</p>`;
@@ -2099,7 +2355,18 @@
         // nothing to show mid-lesson. A draft of what has been typed is kept on the student
         // record instead, written shortly after they stop typing rather than every keystroke.
         let draftTimer = null;
-        function queueDraftSave() { clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 2000); }
+        function queueDraftSave() { clearTimeout(draftTimer); draftTimer = setTimeout(() => { draftTimer = null; saveDraft(); }, 2000); }
+
+        // Writes a draft that is still waiting on its 2-second timer straight away: before the
+        // tablet changes student, and before the page goes away (tablets reload pages).
+        function flushDraft() {
+            if (!draftTimer) return;
+            clearTimeout(draftTimer);
+            draftTimer = null;
+            saveDraft();
+        }
+        window.addEventListener('pagehide', flushDraft);
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushDraft(); });
 
         function saveDraft() {
             const u = store[currentUser];
@@ -2280,6 +2547,7 @@
             const previousBest = getPersonalBest(currentGoal); // capture BEFORE this session is added
             const sessionData = {
                 id: newSessionId(),
+                savedAt: Date.now(),   // orders two sessions saved on the same day
                 date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
                 isoDate: new Date().toISOString().slice(0, 10),
                 goalName: goal.name,
@@ -2334,12 +2602,13 @@
 
         function newSessionId() { return 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
-        // Sessions logged before the picker existed have no id, so give them one on sight.
+        // Sessions logged before the picker existed have no id, so give them one on sight —
+        // worked out from the session itself, so every device arrives at the same one.
         function ensureSessionIds(userName) {
             const hist = (store[userName] || {}).history;
             if (!Array.isArray(hist)) return false;
             let added = false;
-            hist.forEach(s => { if (!s.id) { s.id = newSessionId(); added = true; } });
+            hist.forEach(s => { if (!s.id) { s.id = contentId(s); added = true; } });
             return added;
         }
 
